@@ -222,7 +222,43 @@ class ZeroWidth(Pattern):
 
 
 class GroupRef(Pattern):
-    raise NotImplementedError
+    def _Match(Match):
+        def __init__(self, string, starti, pattern):
+            self.string = string
+            self._starti = starti
+            self._i = pattern.i
+            self._I = _re._contains_flag(pattern.context.flags, _re.I)
+            self._groups = pattern.groups
+            self._groupi = pattern.groupi
+            self._string = self._end = None
+            self._is_exhausted = False
+
+        def _next(self):
+            self._check_exhausted()
+            if self._string is None: # initial match
+                od = self._groups[self._i]
+                if not od:
+                    self._is_exhausted = True
+                    return False
+                group = next(reversed(od.items()))[1]
+                substr = self.string[self._starti: self._starti + len(group)]
+                matches = (group.lower() == substr.lower() if self._I
+                           else group == substr)
+                if matches:
+                    self._string = substr
+                    self._end = self._starti + len(substr)
+                    return self._add_to_groups()
+                else:
+                    self._is_exhausted = True
+                    return False
+            else:
+                self._is_exhausted = True
+                return self._remove_from_groups()
+
+    def __init__(self, i, groupi, context):
+        self.i = i
+        self.groupi = groupi
+        self.context = context
 
 
 class Alternative(Pattern):
