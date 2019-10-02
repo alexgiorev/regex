@@ -2,6 +2,8 @@ import sys
 
 from collections import OrderedDict
 
+import . as _re
+
 class Match:
     """Base class for match objects."""
     def __bool__(self):
@@ -45,33 +47,178 @@ class Match:
 
 
 class Pattern:
-    """Base class for pattern objects."""
+    """Base class for patterns."""
     def match(self, astr):
         self.context.groups = [OrderedDict()] * self.context.ngroups()
         return self._match(astr, 0)
 
     def _match(self, astr, i):
-        """Assumes (i) is an index within (astr). Attempts to make a match at
-        (i). If not possible, None is returned."""        
+        """Assumes (0 <= i <= len(astr)). Attempts to make a match at (i). If
+        not possible, None is returned."""
         m = self._Match(astr, i, self)
         return m if m._next() else None
 
 
 class Char(Pattern):
-    raise NotImplementedError    
+    class _Match(Match):
+        def __init__(self, string, i, pattern):
+            self.string = string
+            self._starti = i
+            self._char = pattern.char
+            self._groupi = pattern.groupi
+            self._groups = pattern.context.groups
+            self._I = _re._contains_flag(pattern.context.flags, _re.I)
+            self._string = None
+            self._is_exhausted = False
+            
+        def _next(self):
+            self._check_exhausted()
+            if self._string is None: # initial match
+                if self._starti == len(self.string):
+                    self._is_exhausted = True
+                    return False
+                else:
+                    char = self.string[self._starti]
+                    matches = (char.lower() == self._char.lower()
+                               if self._I else char == self._char)
+                    if matches:
+                        self._string = char
+                        self._end = self._starti + 1
+                        return self._add_to_groups()
+            else:
+                self._is_exhausted = True
+                return self._remove_from_groups()
+
+    def __init__(self, char, groupi, context):
+        self.char = char
+        self.groupi = groupi
+        self.context = context
 
 
 class CharClass(Pattern):
     class _Match(Match):
-        raise NotImplementedError
+        def __init__(self, string, i, pattern):
+            self.string = string
+            self._starti = i
+            self._chars = pattern.chars
+            self._groups = pattern.context.groups
+            self._groupi = pattern.groupi
+            self._string = self._end = None
+            self._is_exhausted = False
+            self._I = _re.contains_flag(pattern.context.flags, _re.I)
 
-    
+        def _next(self):
+            self._check_exhausted()
+            if self._string is None: # initial match
+                if self._starti == len(self.string):
+                    self._is_exhausted = True
+                    return False
+                else:
+                    char = self.string[self._starti]
+                    matches = ((char.lower() if self._I else char)
+                               in self._chars)
+                    if matches:
+                        self._string = char
+                        self._end = self._starti + 1
+                        return self._add_to_groups()
+            else:
+                self._is_exhausted = True
+                return self._remove_from_groups()
+                
+    def __init__(self, chars, groupi, context):
+        self.chars = (chars
+                      if not _re.contains_flag(context.flags, _re.I)
+                      else {char.lower() for char in chars})
+        self.groupi = groupi
+        self.context = context
+
+
 class ZeroWidth(Pattern):
-    @classmethod
-    def poslook(cls, pattern, negate=False):
-        raise NotImplementedError
+    class _Match(Match):
+        def __init__(self, string, i, pattern):
+            self.string = string
+            self._starti = i
+            self._groups = pattern.context.groups
+            self._groupi = pattern.groupi
+            self._pred = pattern.pred
+            self._string = self._end = None
+            self._is_exhausted = False
+
+        def _next(self):
+            self._check_exhausted()
+            if self._string is None: # initial match
+                if self._pred(self.string, self._starti):
+                    self._string = ''
+                    self._end = self._starti
+                    return self._add_to_groups()
+                else:
+                    self._is_exhausted = True
+                    return False
+            else:
+                self._is_exhausted = True
+                return self._remove_from_groups()
     
-    raise NotImplementedError
+    @classmethod
+    def poslook(cls, pattern, negate, groupi, context):
+        pred = (lambda string, i: bool(pattern._match(string, i))
+                if not negate
+                else lambda string, i: not bool(pattern._match(string, i)))
+        
+        return cls(pred, groupi, context)
+
+    @classmethod
+    def from_str(cls, letter, groupi, context):
+        """Returns the zero-width assertions corresponding to {'^', '$', r'\b',
+        r'\B', r'\A', r'\Z'}."""
+        
+        dct = {} # maps strings to predicates
+
+        def predicate(letter):
+            def decorator(func):
+                dct[letter] = func
+                return func
+            return decorator
+
+        @predicate(r'\b')
+        def b(string, i):
+            if i == 0 or i == len(string):
+                return True
+            c1, c2 = string[i-1], string[i]
+            return not (c1.isalnum() and c2.isalnum())
+
+        @predicate(r'\B')
+        def B(string, i):
+            return not b(string, i)
+
+        @predicate(r'\A')
+        def A(string, i):
+            return i == 0
+
+        @predicate(r'\Z'):
+        def Z(string, i):
+            return i == len(string)
+
+        if _re._contains_flag(context.flags, re.M):
+            @predicate('^')
+            def caret(string, i):
+                return i == 0 or string[i-1] == '\n'
+
+            @predicate('$'):
+            return i == len(string) or string[i] == '\n'
+            
+        else:
+            dct['^'], dct['$'] = A, Z
+
+        pred = dct.get(letter)
+        if pred is None:
+            raise ValueError(f'The letter "{letter}" does not correspond to a zero-width assertion.')
+        
+        return cls(pred, groupi, context)
+
+    def __init__(self, pred, groupi, context):
+        self.pred = pred
+        self.groupi = groupi
+        self.context = context
 
 
 class GroupRef(Pattern):
@@ -139,16 +286,11 @@ class Alternative(Pattern):
         self.groupi = groupi
         self.context = context
 
-    def _match(self, astr, i):
-        m = self._Match(astr, i, self)
-        return m if m._next() else None
-
 class GreedyQuant(Pattern):
     class _Match(Match):
         """
         - When (self.children is None), the match is exhausted. Should I raise an error then?
         - Match objects should be hashable on id so that using OrderedDict works.
-        - Duplicate code in (make) and (_next_high)
         """
         
         def __init__(self, string, starti, pattern):
@@ -203,11 +345,10 @@ class GreedyQuant(Pattern):
             return True
 
         def _take(self):
-            """Assumes (self._children is not None). After _take, (self) will
-            satisfy the upper boundary condition."""
-            i = self._children[-1]._end if self._children else self._starti
+            """Assumes (self._children is not None)."""
+            i = self._end
             for k in range(len(self._children), self._high):
-                child = self.pat._match(self.string, i)
+                child = self._pat._match(self.string, i)
                 if child is None:
                     break
                 self._children.append(child)
