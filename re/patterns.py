@@ -194,7 +194,7 @@ class ZeroWidth(Pattern):
         def A(string, i):
             return i == 0
 
-        @predicate(r'\Z'):
+        @predicate(r'\Z')
         def Z(string, i):
             return i == len(string)
 
@@ -203,7 +203,7 @@ class ZeroWidth(Pattern):
             def caret(string, i):
                 return i == 0 or string[i-1] == '\n'
 
-            @predicate('$'):
+            @predicate('$')
             return i == len(string) or string[i] == '\n'
             
         else:
@@ -399,6 +399,57 @@ class GreedyQuant(Pattern):
         self.high = high if high is not None else sys.maxsize
         self.groupi = groupi
         self.context = context
-        
+
+
 class Concat(Pattern):
-    raise NotImplementedError
+    class _Match(Match):
+        def __init__(self, string, starti, pattern):
+            self.string = string
+            self._starti = starti
+            self._groups = pattern.context.groups
+            self._groupi = pattern.groupi
+            self._lp = pattern.left
+            self._rp = pattern.right
+            self._lm = self._rm = None
+            self._is_exhausted = False
+
+        @property
+        def _string(self):
+            return self._lm._string + self._rm._string
+
+        @property
+        def _end(self):
+            return self._rm._end
+            
+        def _next(self):
+            self._check_exhausted()
+            if self._lm is None: # initial match
+                self._lm = lm = self._lp._match(self.string, self._starti)
+                if lm is None:
+                    self._is_exhausted = True
+                    return False
+                while True:
+                    self._rm = rm = self._rp._match(self.string, lm._end)
+                    if rm:
+                        return self._add_to_groups()
+                    if not lm._next():
+                        self._is_exhausted = True
+                        return False
+            else: # not the initial match
+                if self._rm._next():
+                    return self._add_to_groups()
+                else:
+                    while self._lm._next():
+                        rm = self._rp._match(self.string, lm._end)
+                        if rm:
+                            self._rm = rm
+                            return self._add_to_groups()
+                    else:
+                        self._is_exhausted = True
+                        return self._remove_from_groups()
+
+    def __init__(self, left, right, groupi, context):
+        self.left = left
+        self.right = right
+        self.groupi = groupi
+        self.context = context
