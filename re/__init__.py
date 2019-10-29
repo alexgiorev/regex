@@ -1,8 +1,6 @@
-# -------------------- FLAGS --------------------
+import common
 
-I = IGNORECASE = {1}
-M = MULTILINE = {2}
-S = DOTALL = {3}
-
-def _contains_flag(flags, flag):    
-    return flag <= flags
+# get a copy of the flags so that they can be accessed publically.
+I = IGNORECASE = common.I
+M = MULTILINE = common.M
+S = DOTALL = common.S

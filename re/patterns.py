@@ -2,43 +2,72 @@ import sys
 
 from collections import OrderedDict
 
-import . as _re
+import .common
+
 
 class Match:
-    """Base class for match objects."""
+    """Base class for match objects. A match object is created from a Pattern
+    P. Given a string S, a match corresponds to a substring of S that starts at
+    a given position (determined when creating the match) which matches P."""
+
+    @classmethod
+    def _first(cls, astr, i, pattern):
+        """Assumes that (0 <= i <= len(astr)). Returns a match corresponding to
+        the first substring of (astr) starting at (i) that matches (pattern), or
+        None if such a string doesn't exist."""
+        raise NotImplementedError
+    
     def __bool__(self):
         return True
 
     @property
-    def _string(self):
-        """Returns the matched string."""
+    def _mstr(self):
+        """Returns the matched string if (self) is not exhausted, None if it
+        is."""
         raise NotImplementedError
 
     @property
     def _end(self):
-        """Returns the end index of the matched string within the string."""
+        """Returns the end index in (self.string) where (self._mstr) ends."""
         raise NotImplementedError
 
     def _next(self):
-        """Changes the state of (self) to reflect the next match in the
-        set. Returns True if there had been a next match. Returns False if
-        (self) if there hadn't been a next match and (self) is not exhausted. If
-        (self) is exhausted at the time of the call, an error is raised."""
+        """When trying to match a pattern (P) at a given position (i) in a
+        string (S), more than one such substrings are possible. When (self) is
+        created, it corresponds to the first such substring. So, for example,
+        (self._mstr) is that substring, (self._end) is where it ends,
+        (self._start) is where it starts, etc. This is where _next comes in. If
+        you want (self) to represent the next substring of (S) starting at (i)
+        which matches (P), all you have to do is call (self._next()). If there
+        is such a substring, (self._next()) will return True, and the state of
+        (self) will change to correspond to that next substring
+        (e.g. (self._mstr) and (self._end) will change). But if there is no such
+        substring (i.e. when (self) corresponds to the last of the possible
+        substrings that match (P) at (i)), then calling (self._next()) will
+        return False and at that point (self) will be exhausted. Calling
+        (self._next()) when (self) is exhausted raises a ValueError."""
         raise NotImplementedError
 
     def _add_to_groups(self):
-        """Assumes (self) is not exhausted. Always returns True (this is useful
-        because in many situations we add to groups and then return True. It is
-        more convenient to just write 'return m._add_to_groups())."""
-        if self.groupi is not None:
-            od = self._groups[self.groupi]
-            od[self] = self._string
+        """Assumes (self) is not exhausted. Always returns True. Returning True
+        is useful because in many situations we add to groups and then return
+        True. It is more convenient to just write (return m._add_to_groups())
+        rather than (m._add_to_groups(); return True)."""
+        
+        if self._groupi is not None:
+            od = self._groups[self._groupi]
+            od[self] = self._mstr
         return True
 
     def _remove_from_groups(self):
+        """Assumes (self) is not exhausted. Always returns False. Returing False
+        is useful because in many situations we remove from groups and then
+        return False. It is more convenient to just write (return m.remove_from_groups())
+        rather than (m.remove_from_groups(); return False)."""
+        
         if self._groupi is not None:
             od = self._groups[self._groupi]
-            del od[self]
+            od.pop(self, None)
         return False
 
     def _check_exhausted(self):
@@ -48,108 +77,108 @@ class Match:
 
 class Pattern:
     """Base class for patterns."""
+    
     def match(self, astr):
-        self.context.groups = [OrderedDict()] * self.context.ngroups()
+        self.context.newgroups()
         return self._match(astr, 0)
 
     def _match(self, astr, i):
-        """Assumes (0 <= i <= len(astr)). Attempts to make a match at (i). If
-        not possible, None is returned."""
-        m = self._Match(astr, i, self)
-        return m if m._next() else None
+        """Attempts to make a match at (i). If not possible, None is
+        returned."""
+        assert 0 <= i <= len(astr)
+        return self._Match._first(astr, i, self)
 
 
 class Char(Pattern):
     class _Match(Match):
-        def __init__(self, string, i, pattern):
-            self.string = string
-            self._starti = i
-            self._char = pattern.char
-            self._groupi = pattern.groupi
-            self._groups = pattern.context.groups
-            self._I = _re._contains_flag(pattern.context.flags, _re.I)
-            self._string = None
-            self._is_exhausted = False
+        @classmethod
+        def _first(cls, astr, i, pattern):
+            m = cls()
+            ignorecase = common.contains_flag(pattern._context.flags, common.I)
+            
+            if start == len(astr):
+                return None
+            else:
+                astr_char = astr[i]
+                matches = (pattern._char.lower() == astr_char.lower()
+                           if ignorecase else char == astr_char)
+                if matches:
+                    m.string = astr
+                    m._start = i
+                    m._end = i + 1
+                    m._groupi = pattern._groupi
+                    m._groups = pattern._context.groups
+                    m._mstr = astr_char
+                    m._is_exhausted = False
+                m._add_to_groups()
+                return m
             
         def _next(self):
             self._check_exhausted()
-            if self._string is None: # initial match
-                if self._starti == len(self.string):
-                    self._is_exhausted = True
-                    return False
-                else:
-                    char = self.string[self._starti]
-                    matches = (char.lower() == self._char.lower()
-                               if self._I else char == self._char)
-                    if matches:
-                        self._string = char
-                        self._end = self._starti + 1
-                        return self._add_to_groups()
-            else:
-                self._is_exhausted = True
-                return self._remove_from_groups()
+            self._is_exhausted = True
+            return self._remove_from_groups()
 
     def __init__(self, char, groupi, context):
-        self.char = char
-        self.groupi = groupi
-        self.context = context
+        self._char = char
+        self._groupi = groupi
+        self._context = context
 
 
 class CharClass(Pattern):
     class _Match(Match):
-        def __init__(self, string, i, pattern):
-            self.string = string
-            self._starti = i
-            self._chars = pattern.chars
-            self._groups = pattern.context.groups
-            self._groupi = pattern.groupi
-            self._string = self._end = None
-            self._is_exhausted = False
-            self._I = _re.contains_flag(pattern.context.flags, _re.I)
+        @classmethod
+        def _first(cls, astr, i, pattern):            
+            ignorecase = common.contains_flag(pattern._context.flags, common.I)            
+            if start == len(astr):
+                return None
+            else:
+                astr_char = astr[i]
+                matches = ((astr_char.lower() if ignorecase else char)
+                           in self._chars)
+                if matches:
+                    m = cls()
+                    m.string = astr
+                    m._start = i
+                    m._end = i + 1
+                    m._groups = pattern._context.groups
+                    m._groupi = pattern._groupi
+                    m._mstr = astr_char
+                    m._is_exhausted = False
+                    m._add_to_groups()
+                    return m
+                else:
+                    return None
 
         def _next(self):
             self._check_exhausted()
-            if self._string is None: # initial match
-                if self._starti == len(self.string):
-                    self._is_exhausted = True
-                    return False
-                else:
-                    char = self.string[self._starti]
-                    matches = ((char.lower() if self._I else char)
-                               in self._chars)
-                    if matches:
-                        self._string = char
-                        self._end = self._starti + 1
-                        return self._add_to_groups()
-            else:
-                self._is_exhausted = True
-                return self._remove_from_groups()
+            self._is_exhausted = True
+            return self._remove_from_groups()
                 
     def __init__(self, chars, groupi, context):
-        self.chars = (chars
-                      if not _re.contains_flag(context.flags, _re.I)
+        self._chars = (chars
+                      if not common.contains_flag(context.flags, common.I)
                       else {char.lower() for char in chars})
-        self.groupi = groupi
-        self.context = context
+        self._groupi = groupi
+        self._context = context
 
 
 class ZeroWidth(Pattern):
     class _Match(Match):
-        def __init__(self, string, i, pattern):
+        def __init__(self, string, start, pattern):
             self.string = string
-            self._starti = i
-            self._groups = pattern.context.groups
-            self._groupi = pattern.groupi
-            self._pred = pattern.pred
-            self._string = self._end = None
+            self._start = start
+            self._groups = pattern._context.groups
+            self._groupi = pattern._groupi
+            self._pred = pattern._pred
+            self._mstr = self._end = None
             self._is_exhausted = False
 
         def _next(self):
             self._check_exhausted()
-            if self._string is None: # initial match
-                if self._pred(self.string, self._starti):
-                    self._string = ''
-                    self._end = self._starti
+            if self._mstr is None: # initial match
+                if self._pred(self.string, self._start):
+                    self._mstr = ''
+                    self._end = self._start
                     return self._add_to_groups()
                 else:
                     self._is_exhausted = True
@@ -198,7 +227,7 @@ class ZeroWidth(Pattern):
         def Z(string, i):
             return i == len(string)
 
-        if _re._contains_flag(context.flags, re.M):
+        if common.contains_flag(context.flags, re.M):
             @predicate('^')
             def caret(string, i):
                 return i == 0 or string[i-1] == '\n'
@@ -216,37 +245,38 @@ class ZeroWidth(Pattern):
         return cls(pred, groupi, context)
 
     def __init__(self, pred, groupi, context):
-        self.pred = pred
-        self.groupi = groupi
-        self.context = context
+        self._pred = pred
+        self._groupi = groupi
+        self._context = context
 
 
 class GroupRef(Pattern):
     def _Match(Match):
-        def __init__(self, string, starti, pattern):
+        def __init__(self, string, start, pattern):
             self.string = string
-            self._starti = starti
-            self._i = pattern.i
-            self._I = _re._contains_flag(pattern.context.flags, _re.I)
-            self._groups = pattern.groups
-            self._groupi = pattern.groupi
-            self._string = self._end = None
+            self._start = start
+            self._i = pattern._i
+            self._I = common.contains_flag(pattern._context.flags, common.I)
+            self._groups = pattern._groups
+            self._groupi = pattern._groupi
+            self._mstr = self._end = None
             self._is_exhausted = False
+
 
         def _next(self):
             self._check_exhausted()
-            if self._string is None: # initial match
+            if self._mstr is None: # initial match
                 od = self._groups[self._i]
                 if not od:
                     self._is_exhausted = True
                     return False
                 group = next(reversed(od.items()))[1]
-                substr = self.string[self._starti: self._starti + len(group)]
+                substr = self.string[self._start: self._start + len(group)]
                 matches = (group.lower() == substr.lower() if self._I
                            else group == substr)
                 if matches:
-                    self._string = substr
-                    self._end = self._starti + len(substr)
+                    self._mstr = substr
+                    self._end = self._start + len(substr)
                     return self._add_to_groups()
                 else:
                     self._is_exhausted = True
@@ -255,29 +285,29 @@ class GroupRef(Pattern):
                 self._is_exhausted = True
                 return self._remove_from_groups()
 
-    def __init__(self, i, groupi, context):
-        self.i = i
-        self.groupi = groupi
-        self.context = context
+    def __init__(self, string, groupi, context):
+        self._i = i
+        self._groupi = groupi
+        self._context = context
 
 
 class Alternative(Pattern):
     class _Match(Match):
         """Exhausted when (self._m is None and not self._atleft)."""
-        def __init__(self, astr, i, pattern):
-            self.string = astr
-            self._starti = i
-            self._lp = pattern.left
-            self._rp = pattern.right
-            self._groups = pattern.context.groups
-            self._groupi = pattern.groupi
+        def __init__(self, string, start, pattern):
+            self.string = string
+            self._start = start
+            self._lp = pattern._left
+            self._rp = pattern._right
+            self._groups = pattern._context.groups
+            self._groupi = pattern._groupi
             self._m = None
             self._atleft = True
 
         @property
-        def _string(self):
+        def _mstr(self):
             self._check_exhausted()
-            return self._m._string
+            return self._m._mstr
 
         @property
         def _end(self):
@@ -292,12 +322,12 @@ class Alternative(Pattern):
             self._check_exhausted()
             
             if not self._m and self._atleft: # initial match
-                m = self._lp._match(self.string, self._starti)
+                m = self._lp._match(self.string, self._start)
                 if m:
                     self._m = m
                 else:
                     self._atleft = False
-                    m = self._rp._match(self.string, self._starti)
+                    m = self._rp._match(self.string, self._start)
                     if m:
                         self._m = m
                     else:
@@ -309,7 +339,7 @@ class Alternative(Pattern):
             else:
                 if self._atleft:
                     self._atleft = False
-                    m = self._rp._match(self.string, self._starti)                
+                    m = self._rp._match(self.string, self._start)                
                     if m:
                         self._m = m
                         return self._add_to_groups()
@@ -317,10 +347,10 @@ class Alternative(Pattern):
                 return self._remove_from_groups()
 
     def __init__(self, left, right, groupi, context):
-        self.left = left
-        self.right = right
-        self.groupi = groupi
-        self.context = context
+        self._left = left
+        self._right = right
+        self._groupi = groupi
+        self._context = context
 
 class GreedyQuant(Pattern):
     class _Match(Match):
@@ -329,43 +359,38 @@ class GreedyQuant(Pattern):
         - Match objects should be hashable on id so that using OrderedDict works.
         """
         
-        def __init__(self, string, starti, pattern):
+        def __init__(self, string, start, pattern):
             self.string = string
-            self._starti = starti
-            self._pat = pattern.child
-            self._low = pattern.low
-            self._high = pattern.high
-            self._groupi = pattern.groupi
-            self._groups = pattern.context.groups
+            self._start = start
+            self._pat = pattern._child
+            self._low = pattern._low
+            self._high = pattern._high
+            self._groupi = pattern._groupi
+            self._groups = pattern._context.groups
             self._children = None
             self._is_exhausted = False
 
-        def _check_exhausted(self):
-            if self._children is None:
-                raise ValueError(f'Exhausted match.')
-
         @property
-        def _string(self):
+        def _mstr(self):
             """Returns the matched string."""
-            return ''.join(child._string for child in self._children)
+            return ''.join(child._mstr for child in self._children)
 
         @property
         def _end(self):
             if not self._children:
-                return self._starti
+                return self._start
             else:
                 return self._children[-1]._end
-        
+            
         def _next(self):
             self._check_exhausted()
-            while self._next_high():
+            while self._next_upper():
                 if len(self._children) >= self._low:
                     return self._add_to_groups()
             return False
 
-        def _next_high(self):
-            """Assumes (self) isn't exhausted. Changes (self) to satisfy only
-            the upper bound."""
+        def _next_upper(self):
+            """Assumes (self) isn't exhausted."""
             if self.children is None: # initial match
                 m._take()
                 return True
@@ -394,28 +419,28 @@ class GreedyQuant(Pattern):
                 i = end
                 
     def __init__(self, child, low, high, groupi, context):
-        self.child = child
-        self.low = low
-        self.high = high if high is not None else sys.maxsize
-        self.groupi = groupi
-        self.context = context
+        self._child = child
+        self._low = low
+        self._high = high if high is not None else sys.maxsize
+        self._groupi = groupi
+        self._context = context
 
 
 class Concat(Pattern):
     class _Match(Match):
-        def __init__(self, string, starti, pattern):
+        def __init__(self, string, start, pattern):
             self.string = string
-            self._starti = starti
-            self._groups = pattern.context.groups
-            self._groupi = pattern.groupi
-            self._lp = pattern.left
-            self._rp = pattern.right
+            self._start = start
+            self._groups = pattern._context.groups
+            self._groupi = pattern._groupi
+            self._lp = pattern._left
+            self._rp = pattern._right
             self._lm = self._rm = None
             self._is_exhausted = False
 
         @property
-        def _string(self):
-            return self._lm._string + self._rm._string
+        def _mstr(self):
+            return self._lm._mstr + self._rm._mstr
 
         @property
         def _end(self):
@@ -424,7 +449,7 @@ class Concat(Pattern):
         def _next(self):
             self._check_exhausted()
             if self._lm is None: # initial match
-                self._lm = lm = self._lp._match(self.string, self._starti)
+                self._lm = lm = self._lp._match(self.string, self._start)
                 if lm is None:
                     self._is_exhausted = True
                     return False
@@ -449,7 +474,10 @@ class Concat(Pattern):
                         return self._remove_from_groups()
 
     def __init__(self, left, right, groupi, context):
-        self.left = left
-        self.right = right
-        self.groupi = groupi
-        self.context = context
+        self._left = left
+        self._right = right
+        self._groupi = groupi
+        self._context = context
+
+if __name__ == '__main__':
+    raise NotImplementedError

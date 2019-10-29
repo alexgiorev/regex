@@ -24,7 +24,7 @@ def tokenfunc(func):
     tokenfuncs.append(func)
     return func
 
-def tokenize(regstr, flags):
+def tokenize(restr, flags):
     """
     A token is a pair (type, lexeme). For some tokens, due to a lack of
     imagination, the type and lexeme match. For example, for the token '(?:',
@@ -54,28 +54,28 @@ def tokenize(regstr, flags):
     """
     
     tokens = []
-    i, size = 0, len(regstr)
+    i, size = 0, len(restr)
     while i < size:
         for tf in tokenfuncs:
-            token, taken = tf(regstr, i)
+            token, taken = tf(restr, i)
             if token is not None:
                 tokens.append(token)
                 i += taken
                 break
         else:
-            raise ValueError(f'Cannot extract a token from "{regstr[i:]}"')
+            raise ValueError(f'Cannot extract a token from "{restr[i:]}"')
     return tokens
 
 @tokenfunc
-def backlash(regstr, i):    
+def backlash(restr, i):    
     def error():
-        raise ValueError(f'Bad escape: "{regstr[i]}"')
+        raise ValueError(f'Bad escape: "{restr[i]}"')
 
-    if regstr[i] != '\\':
+    if restr[i] != '\\':
         return (None, None)    
-    if i == len(regstr) - 1:
+    if i == len(restr) - 1:
         error()
-    nxt = regstr[i+1]
+    nxt = restr[i+1]
     dct = {'A': (r'\A', r'\A'), 'b': (r'\b', r'\b'),
            'B': (r'\B', r'\B'), 'Z': (r'\Z', r'\Z')}    
     if nxt in dct:
@@ -85,10 +85,10 @@ def backlash(regstr, i):
     if nxt in SPECIAL:
         return ('char', nxt), 2
     if nxt.isdigit():
-        digits = _digits(regstr, i+1)
+        digits = _digits(restr, i+1)
         return ('group-index', int(digits)), len(digits)
     if nxt == 'x':
-        nxt2 = regstr[i+2: i+4]
+        nxt2 = restr[i+2: i+4]
         if len(nxt2) < 2 or all(c in HEXDIGITS for c in nxt2):
             error()
         return ('char', chr(int(nxt2, 16))), 4
@@ -108,25 +108,25 @@ def _digits(astr, i):
     return ''.join(digits)
         
 @tokenfunc
-def paren(regstr, i):
+def paren(restr, i):
     for prefix in '(?:', '(?=', '(?!', '(', ')':
-        if regstr.startswith(prefix, i):
+        if restr.startswith(prefix, i):
             return (prefix, prefix), len(prefix)
     return (None, None)
 
 @tokenfunc
-def char_class(regstr, i):
-    if regstr[i] != '[':
+def char_class(restr, i):
+    if restr[i] != '[':
         return (None, None)
     # Find index of closing ']'. Start at i+2 because a beginning ']' does not
     # indicate the end of the class.
-    for j in range(i+2, len(regstr)):
-        ch = regstr[j]
-        if ch == ']' and regstr[j-1] != '\\':
+    for j in range(i+2, len(restr)):
+        ch = restr[j]
+        if ch == ']' and restr[j-1] != '\\':
             break
     else:
-        raise ValueError(f'Missing closing "]" for class: "{regstr[i:]}"')
-    return ('char-class', _form_class(regstr[i+1:j])), j+1-i
+        raise ValueError(f'Missing closing "]" for class: "{restr[i:]}"')
+    return ('char-class', _form_class(restr[i+1:j])), j+1-i
 
 def _form_class(chars):
     """Assumes (chars) is a non-empty iterator of characters."""
@@ -196,16 +196,16 @@ def _form_class(chars):
     return result if not negate else ALL-result
 
 @tokenfunc
-def selfeval(regstr, i):
-    char, chars = regstr[i], '^$|'    
+def selfeval(restr, i):
+    char, chars = restr[i], '^$|'    
     return ((char, char), 1) if char in chars else (None, None)
 
 @tokenfunc
-def greedy_quant(regstr, i):
+def greedy_quant(restr, i):
     def error():
-        raise ValueError(f'Invalid quantifier at {i}: "{regstr}"')
+        raise ValueError(f'Invalid quantifier at {i}: "{restr}"')
     
-    ch = regstr[i]
+    ch = restr[i]
     if ch == '*':
         return ('greedy-quant', (0, None)), 1
     elif ch == '+':
@@ -213,10 +213,10 @@ def greedy_quant(regstr, i):
     elif ch == '?':
         return ('greedy-quant', (0, 1)), 1
     elif ch == '{':
-        j = regstr.find('}', i)
+        j = restr.find('}', i)
         if j == -1:
             error()
-        bounds = regstr[i+1:j].split(',')
+        bounds = restr[i+1:j].split(',')
         if len(bounds) != 2:
             error()
         try:
@@ -230,11 +230,11 @@ def greedy_quant(regstr, i):
         return (None, None)    
     
 @tokenfunc
-def char(regstr, i):
-    return ('char', regstr[i]), 1
+def char(restr, i):
+    return ('char', restr[i]), 1
 
 @tokenfunc
-def dot(regstr, i):
+def dot(restr, i):
     raise NotImplementedError
 
 if __name__ == '__main__':
