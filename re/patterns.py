@@ -4,11 +4,17 @@ from collections import OrderedDict
 
 import .common
 
-
 class Match:
-    """Base class for match objects. A match object is created from a Pattern
-    P. Given a string S, a match corresponds to a substring of S that starts at
-    a given position (determined when creating the match) which matches P."""
+    """Base class for match objects.
+    The attributes shared by all Match instances are:
+    - string: the string on which the match was made. match._mstr is a substring
+      of this.
+    - _mstr: the matched substring.
+    - _groupi: the group index.
+    - _groups
+    - _start, _end: these determine the span of the matched substring.
+    - _is_exhausted
+    """
 
     @classmethod
     def _first(cls, astr, i, pattern):
@@ -19,17 +25,6 @@ class Match:
     
     def __bool__(self):
         return True
-
-    @property
-    def _mstr(self):
-        """Returns the matched string if (self) is not exhausted, None if it
-        is."""
-        raise NotImplementedError
-
-    @property
-    def _end(self):
-        """Returns the end index in (self.string) where (self._mstr) ends."""
-        raise NotImplementedError
 
     def _next(self):
         """When trying to match a pattern (P) at a given position (i) in a
@@ -45,7 +40,19 @@ class Match:
         substring (i.e. when (self) corresponds to the last of the possible
         substrings that match (P) at (i)), then calling (self._next()) will
         return False and at that point (self) will be exhausted. Calling
-        (self._next()) when (self) is exhausted raises a ValueError."""
+        (self._next()) when (self) is exhausted raises a ValueError.
+
+        Consider the following example: let P = r'(abcd)*', S = 'xxxabcyyy', i =
+        3, m = P._match(S, i). Then (m._mstr == 'abc'), (m._start == 3), (m._end
+        == 6) and (m.group(1) == 'c'). Now assume (m._next()) is executed. It
+        will return True, (m._mstr == 'ab'), (m._start == 3), (m._end == 5) and
+        (m.group(1) == 'b'). Again we execute (m._next()), again it returns True
+        and this time (m._mstr == 'a'), (m._start == 3), (m._end == 4) and
+        (m.group(1) == 'a'). One more time! We execute (m._next()), it returns
+        True, (m._mstr == ''), (m._start == 3), (m._end == 3) and (m.group(1) ==
+        None). Finally, if at this point (m._next()) is executed, it returns
+        False, and all of m._mstr, m._start, m._end and m.group(1) are None. If
+        now (m._next()) is executed, it will raise a ValueError."""
         raise NotImplementedError
 
     def _add_to_groups(self):
@@ -112,10 +119,11 @@ class Char(Pattern):
                     m._is_exhausted = False
                 m._add_to_groups()
                 return m
-            
+
         def _next(self):
             self._check_exhausted()
             self._is_exhausted = True
+            m._start = m._end = m._mstr = None
             return self._remove_from_groups()
 
     def __init__(self, char, groupi, context):
@@ -152,6 +160,7 @@ class CharClass(Pattern):
         def _next(self):
             self._check_exhausted()
             self._is_exhausted = True
+            m._mstr = m._start = m._end = None
             return self._remove_from_groups()
                 
     def __init__(self, chars, groupi, context):
@@ -163,42 +172,54 @@ class CharClass(Pattern):
 
 
 class ZeroWidth(Pattern):
+    """All zero-width assertions follow a common matching algorithm: just check
+    if a predicate (pred) at some position (i) within a string (S) holds, and if
+    it does, return a Match object (m) with (m._mstr == '' and m._start ==
+    m._end == i and not m._next()). Examples of zero-width assertions are word
+    boundaries r'\b', caret '^' and dollar '$', and positive lookaheads
+    (?=regex). All of those (and more) are handled by this class. The idea is
+    that a predicate function (the _pred attribute of a ZeroWidth instance) is
+    used to determine if the condition at (i) holds. Various class methods serve
+    to create the predicate function and return the zero-width pattern
+    corresponding to it."""
+    
     class _Match(Match):
-        def __init__(self, string, start, pattern):
-            self.string = string
-            self._start = start
-            self._groups = pattern._context.groups
-            self._groupi = pattern._groupi
-            self._pred = pattern._pred
-            self._mstr = self._end = None
-            self._is_exhausted = False
+        @classmethod
+        def _first(cls, string, i, pattern):
+            if pattern._pred(self.string, i):
+                m = cls()
+                m.string = string
+                m._mstr = ''
+                m._groupi = pattern._groupi
+                m._groups = pattern._context.groups
+                m._start = m._end = i
+                m._is_exhausted = False
+                m._add_to_groups()
+                return m
+            else:
+                return None
 
         def _next(self):
             self._check_exhausted()
-            if self._mstr is None: # initial match
-                if self._pred(self.string, self._start):
-                    self._mstr = ''
-                    self._end = self._start
-                    return self._add_to_groups()
-                else:
-                    self._is_exhausted = True
-                    return False
-            else:
-                self._is_exhausted = True
-                return self._remove_from_groups()
+            self._is_exhausted = True
+            self._mstr = self._start = self._end = None
+            return self._remove_from_groups()
     
     @classmethod
-    def poslook(cls, pattern, negate, groupi, context):
+    def lookahead(cls, pattern, positive, groupi, context):
+        """Returns the lookahead zero-width pattern, with (pattern) being the
+        pattern that is tested at the position. The boolean (positive)
+        determines if the lookahead will be positive or negative."""
         pred = (lambda string, i: bool(pattern._match(string, i))
-                if not negate
-                else lambda string, i: not bool(pattern._match(string, i)))
-        
+                if positive
+                else lambda string, i: not bool(pattern._match(string, i)))        
         return cls(pred, groupi, context)
 
     @classmethod
     def from_str(cls, letter, groupi, context):
-        """Returns the zero-width assertions corresponding to {'^', '$', r'\b',
-        r'\B', r'\A', r'\Z'}."""
+        """Assumes (letter in {'^', '$', r'\b', r'\B', r'\A', r'\Z'}). Returns
+        the corresponding zero width assertion pattern. For example, when
+        (letter == r'\b'), returns the word boundary zero width pattern."""
         
         dct = {} # maps strings to predicates
 
@@ -250,101 +271,103 @@ class ZeroWidth(Pattern):
         self._context = context
 
 
-class GroupRef(Pattern):
+class BackRef(Pattern):
+    """Pattern for regexes of the form r'\<int>', where <int> is some positive
+    integer."""
     def _Match(Match):
-        def __init__(self, string, start, pattern):
-            self.string = string
-            self._start = start
-            self._i = pattern._i
-            self._I = common.contains_flag(pattern._context.flags, common.I)
-            self._groups = pattern._groups
-            self._groupi = pattern._groupi
-            self._mstr = self._end = None
-            self._is_exhausted = False
-
+        @classmethod
+        def _first(cls, astr, i, pattern):
+            ref, groups = pattern._ref, pattern._context.groups
+            ignorecase = common.contains_flag(pattern._context.flags, common.I)
+            
+            odict = groups[ref]
+            if not odict:
+                return None
+            mstr = next(reversed(odict.values())) # the latest matched string
+            end = i + len(mstr)
+            substr = astr[i: end]
+            matches = (mstr.lower() == substr.lower() if ignorecase
+                       else mstr == substr)
+            if matches:
+                m = cls()
+                m.string, m._mstr = astr, substr
+                m._groupi, m._groups = pattern._groupi, groups      
+                m._start, m._end = i, end
+                m._is_exhausted = False
+                m._add_to_groups()
+                return m
+            else:
+                return None
 
         def _next(self):
             self._check_exhausted()
-            if self._mstr is None: # initial match
-                od = self._groups[self._i]
-                if not od:
-                    self._is_exhausted = True
-                    return False
-                group = next(reversed(od.items()))[1]
-                substr = self.string[self._start: self._start + len(group)]
-                matches = (group.lower() == substr.lower() if self._I
-                           else group == substr)
-                if matches:
-                    self._mstr = substr
-                    self._end = self._start + len(substr)
-                    return self._add_to_groups()
-                else:
-                    self._is_exhausted = True
-                    return False
-            else:
-                self._is_exhausted = True
-                return self._remove_from_groups()
+            self._is_exhausted = True
+            self._mstr = self._start = self._end = None
+            return self._remove_from_groups()
 
-    def __init__(self, string, groupi, context):
-        self._i = i
+    def __init__(self, ref, groupi, context):
+        self._ref = ref
         self._groupi = groupi
         self._context = context
 
 
 class Alternative(Pattern):
+    """Corresponds to a regex of the form '<left-regex>|<right-regex>'.
+    Attributes:
+    - _left, _right: the left and right patterns, respectively. These patterns
+      are also referred to as the child patterns.
+    - _child: a match of one of the child patterns. _childleft determines which
+      one.
+    - _childleft: a boolean indicating if _child is a match of the left
+      pattern."""
+    
     class _Match(Match):
         """Exhausted when (self._m is None and not self._atleft)."""
-        def __init__(self, string, start, pattern):
-            self.string = string
-            self._start = start
-            self._lp = pattern._left
-            self._rp = pattern._right
-            self._groups = pattern._context.groups
-            self._groupi = pattern._groupi
-            self._m = None
-            self._atleft = True
-
-        @property
-        def _mstr(self):
-            self._check_exhausted()
-            return self._m._mstr
-
-        @property
-        def _end(self):
-            self._check_exhausted()
-            return self._m._end
-            
-        @property
-        def _is_exhausted(self):
-            return not self._m and not self._atleft
-            
-        def _next(self):
-            self._check_exhausted()
-            
-            if not self._m and self._atleft: # initial match
-                m = self._lp._match(self.string, self._start)
-                if m:
-                    self._m = m
-                else:
-                    self._atleft = False
-                    m = self._rp._match(self.string, self._start)
-                    if m:
-                        self._m = m
-                    else:
-                        return False
-                return self._add_to_groups()
-            
-            if self._m._next():
-                return self._add_to_groups()
+        @classmethod
+        def _first(cls, astr, i, pattern):
+            def init(left):
+                # string, _mstr, _groupi, _groups, _start, _end, _is_exhausted
+                m.string = astr
+                m.groupi, m.groups = pattern._groupi, pattern._context.groups
+                m._is_exhausted = False
+                m._left = m._right = pattern._left, pattern._right
+                m._childleft = left
+                m._child = child
+                m._refresh()
+                return m
+                
+            m = cls()
+            child = pattern._left._match(astr, i)
+            if child:
+                return init(left=True)
             else:
-                if self._atleft:
-                    self._atleft = False
-                    m = self._rp._match(self.string, self._start)                
-                    if m:
-                        self._m = m
-                        return self._add_to_groups()
-                self._m = None
-                return self._remove_from_groups()
+                child = pattern._right._match(astr, i)
+                if child:
+                    return init(left=False)
+                else:
+                    return None
+
+        def _refresh(self):
+            """Assumes (self._child) is set. Always returns True."""
+            c = self._child
+            self._mstr, self._start, self._end = (c._mstr, c._start, c._end)
+            return self._add_to_groups() # True
+                    
+        def _next(self):
+            self._check_exhausted()            
+            if self._child._next():
+                return self._refresh() # True
+            else:
+                if self._childleft:
+                    child = self._right._match(self.string, self._start)
+                    if child:
+                        self._childleft = False
+                        self._child = child
+                        return self._refresh() # True
+                else:
+                    self._mstr = self._start = self._end = None
+                    self._is_exhausted = True
+                    return self._remove_from_groups()
 
     def __init__(self, left, right, groupi, context):
         self._left = left
@@ -352,67 +375,95 @@ class Alternative(Pattern):
         self._groupi = groupi
         self._context = context
 
-class GreedyQuant(Pattern):
-    class _Match(Match):
-        """
-        - When (self.children is None), the match is exhausted. Should I raise an error then?
-        - Match objects should be hashable on id so that using OrderedDict works.
-        """
         
-        def __init__(self, string, start, pattern):
-            self.string = string
-            self._start = start
-            self._pat = pattern._child
-            self._low = pattern._low
-            self._high = pattern._high
-            self._groupi = pattern._groupi
-            self._groups = pattern._context.groups
-            self._children = None
-            self._is_exhausted = False
+class GreedyQuant(Pattern):
+    """All quantifiers are implemented by this class. This includes '*', '+',
+    '?', '{m,n}'. A quantifier has a lower and upper bound. Here is a mapping from operators to bounds:
+    - '*' -> (0, inf)
+    - '+' -> (1, inf)
+    - '?' -> (0, 1)
+    - '{m,n}' -> (m, n).
+    Keep in mind that (inf) doesn't really mean infinity. It may in the future,
+    but for now it stands for (sys.maxsize).
+
+    Extra attributes:
+    - _low, _high: the bounds
+    - _children: a list of matches or None when exhausted.
+    - _base: the pattern used to form the children."""
+    
+    class _Match(Match):
+        @classmethod
+        def _first(cls, astr, i, pattern):
+            # string, _mstr, _groupi, _groups, _start, _end, _is_exhausted
+
+            # partially initialize first, so that some methods can be used.
+            m = cls()
+            m.string = astr
+            m._mstr = None
+            m._groupi, m._groups = pattern._groupi, pattern._context._groups
+            m._start = m._end = i
+            m._is_exhausted = False
+            m._low, m._high = pattern._low, pattern._high
+            m._children = []
+            m._base = pattern._child
+            
+            m._take()
+            while len(m._children) < m._high:
+                if not m._next_high():
+                    return None
+            m._add_to_groups()
+            return m
 
         @property
-        def _mstr(self):
-            """Returns the matched string."""
+        def _mstr(self):            
+            if self._is_exhausted:
+                return None
             return ''.join(child._mstr for child in self._children)
 
+        # _mstr and _end as properties may be slow under certain
+        # circumstances. TODO: Valuate this design.
+        
         @property
         def _end(self):
+            if self._is_exhausted:
+                return None
             if not self._children:
                 return self._start
-            else:
-                return self._children[-1]._end
+            return self._children[-1]._end
             
         def _next(self):
             self._check_exhausted()
-            while self._next_upper():
+            while self._next_high():
                 if len(self._children) >= self._low:
                     return self._add_to_groups()
-            return False
+            self._mstr = None
+            self._is_exhausted = True
+            return self._remove_from_groups()
 
-        def _next_upper(self):
-            """Assumes (self) isn't exhausted."""
-            if self.children is None: # initial match
-                m._take()
-                return True
+        def _next_high(self):
+            """Assumes (self) isn't exhausted. Updates (self) to the next match
+            that satisfies the upper bound. Does not attempt to satisfy the
+            lower bound. Returns True if successful, False otherwise."""
             if not self._children:
-                self._children = None
-                self._is_exhausted = True
-                return self._remove_from_groups()
+                return False
             child = self._children[-1]
             if child._next():
                 self._take()
             else:
                 self._children.pop()
             return True
-
+        
         def _take(self):
-            """Assumes (self._children is not None)."""
+            """This is where greed comes in. Tries to append as many matches as
+            possible to (self._children)."""
+            # For performance reasons, take some attributes.
+            base, string, children = self._base, self.string, self._children
             i = self._end
-            for k in range(len(self._children), self._high):
-                child = self._pat._match(self.string, i)
+            for k in range(len(children), self._high):
+                child = base._match(string, i)
                 if child is None:
                     break
-                self._children.append(child)
+                children.append(child)
                 end = child._end
                 if i == end:
                     break
@@ -421,7 +472,7 @@ class GreedyQuant(Pattern):
     def __init__(self, child, low, high, groupi, context):
         self._child = child
         self._low = low
-        self._high = high if high is not None else sys.maxsize
+        self._high = sys.maxsize if high is None else high
         self._groupi = groupi
         self._context = context
 
