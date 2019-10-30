@@ -4,6 +4,7 @@ from collections import OrderedDict
 
 import .common
 
+
 class Match:
     """Base class for match objects.
     The attributes shared by all Match instances are:
@@ -436,8 +437,8 @@ class GreedyQuant(Pattern):
             while self._next_high():
                 if len(self._children) >= self._low:
                     return self._add_to_groups()
-            self._mstr = None
             self._is_exhausted = True
+            self._start = None
             return self._remove_from_groups()
 
         def _next_high(self):
@@ -477,52 +478,62 @@ class GreedyQuant(Pattern):
         self._context = context
 
 
-class Concat(Pattern):
+class Product(Pattern):
+    """For regexes of the form '<left-regex><right-regex>'.
+    Extra attributes:
+    - _leftpattern, _rightpattern: the left and right patterns.
+    - _leftchild, _rightchild: match objects derived from _leftpattern and
+      _rightpattern, respectively.
+    - """
     class _Match(Match):
-        def __init__(self, string, start, pattern):
-            self.string = string
-            self._start = start
-            self._groups = pattern._context.groups
-            self._groupi = pattern._groupi
-            self._lp = pattern._left
-            self._rp = pattern._right
-            self._lm = self._rm = None
-            self._is_exhausted = False
+        @classmethod
+        def _first(cls, astr, i, pattern):
+            leftmatch = pattern._left._match(astr, i)
+            if not leftmatch:
+                return None
+            while True:
+                rightmatch = pattern._right._match(astr, leftmatch._end)
+                if rightmatch:
+                    # initialize and return
+                    m = cls()
+                    m.string = astr
+                    # _mstr and _end are properties, no need to assign them here.
+                    m._groupi = pattern._groupi
+                    m._groups = pattern._context.groups
+                    m._start = i
+                    m._is_exhausted = False
+                    m._leftpattern = pattern._left
+                    m._rightpattern = pattern._right
+                    m._leftchild = leftmatch
+                    m._rightchild = rightmatch
+                    m._add_to_groups()
+                    return m
+                if not lm._next():
+                    return None
 
         @property
         def _mstr(self):
-            return self._lm._mstr + self._rm._mstr
+            return (None if self._is_exhausted
+                    else self._leftchild._mstr + self._rightchild._mstr)
 
         @property
         def _end(self):
-            return self._rm._end
+            return None if self._is_exhausted else self._rightchild._end
             
         def _next(self):
             self._check_exhausted()
-            if self._lm is None: # initial match
-                self._lm = lm = self._lp._match(self.string, self._start)
-                if lm is None:
-                    self._is_exhausted = True
-                    return False
-                while True:
-                    self._rm = rm = self._rp._match(self.string, lm._end)
-                    if rm:
+            if self._rightchild._next():
+                return self._add_to_groups()
+            else:
+                while self._leftchild._next():
+                    rightmatch = self._rightpattern._match(self.string, leftmatch._end)
+                    if rightmatch:
+                        self._rightchild = rightmatch
                         return self._add_to_groups()
-                    if not lm._next():
-                        self._is_exhausted = True
-                        return False
-            else: # not the initial match
-                if self._rm._next():
-                    return self._add_to_groups()
                 else:
-                    while self._lm._next():
-                        rm = self._rp._match(self.string, lm._end)
-                        if rm:
-                            self._rm = rm
-                            return self._add_to_groups()
-                    else:
-                        self._is_exhausted = True
-                        return self._remove_from_groups()
+                    self._is_exhausted = True
+                    self._start = None
+                    return self._remove_from_groups()
 
     def __init__(self, left, right, groupi, context):
         self._left = left
