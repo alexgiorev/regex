@@ -2,7 +2,7 @@ import sys
 
 from collections import OrderedDict
 
-import .common
+from . import common
 
 
 class Match:
@@ -24,9 +24,6 @@ class Match:
         None if such a string doesn't exist."""
         raise NotImplementedError
     
-    def __bool__(self):
-        return True
-
     def _next(self):
         """When trying to match a pattern (P) at a given position (i) in a
         string (S), more than one such substrings are possible. When (self) is
@@ -80,21 +77,125 @@ class Match:
 
     def _check_exhausted(self):
         if self._is_exhausted:
-            raise ValueError('Exhausted match.')
+            raise ValueError('Exhausted match object.')        
+
+    # ----------------------------------------
+    # Public functions and their helpers
+        
+    def __bool__(self):
+        return True
+
+    def __getitem__(self, i):
+        return self.group(i)
+
+    @property
+    def _ngroups(self):
+        """Just a helper function which returns the number of groups. Group
+        numbers start from 1. (self._groups) is a list whose first element is
+        None and all other elements correspond to actual groups. This is why the
+        length is decremented."""
+        return len(self._groups) - 1
+
+    def _check_index(self, i):
+        """A helper for the functions which make use of groups."""
+        if type(i) is not int:
+            raise TypeError(f'Index must be an int, not {type(i)}: {i}')
+        if not 0 <= i <= self._ngroups:
+            raise IndexError(f'No such group: {i}')
+    
+    def group(self, *indices):
+        self._check_exhausted()
+        def extract(i):            
+            self._check_index(i)
+            if i == 0:
+                return self._mstr
+            odict = self._groups[i]
+            if not odict:
+                return None
+            return next(reversed(odict.values()))
+        if len(indices) == 0:
+            return extract(0)
+        elif len(indices) == 1:
+            return extract(indices[0])
+        else:
+            return tuple(extract(i) for i in indices)
+
+    def groups(self, default=None):
+        mstrs = (self.group(i) for i in range(1, self._ngroups + 1))
+        return (default if mstr is None else mstr for mstr in mstrs)
+
+    def span(self, i=0):
+        return self.start(i, start=True), self.end(i)
+
+    def _boundary(self, i, hint):
+        """Helper for self.start and self.end. Finds the match (m) which has
+        group number (i). If there is no such match, -1 is returned. If (hint ==
+        'start'), the start index of (m) is returned, while if (hint == 'end'),
+        the end index is returned."""
+        
+        self._check_exhausted()
+        self._check_index(i)
+        if hint not in ('start', 'end'):
+            raise ValueError(f'Bad hint: {repr(hint)}')
+        if i == 0:
+            m = self
+        else:
+            odict = self._groups[i]
+            if not odict:
+                return -1
+            m = next(reversed(odict))
+        return m._start if hint == 'start' else m._end
+    
+    def start(self, i=0):
+        return self._boundary(i, 'start')
+
+    def end(self, i=0):
+        return self._boundary(i, 'end')
 
 
 class Pattern:
     """Base class for patterns."""
     
-    def match(self, astr):
-        self.context.newgroups()
-        return self._match(astr, 0)
-
     def _match(self, astr, i):
         """Attempts to make a match at (i). If not possible, None is
         returned."""
         assert 0 <= i <= len(astr)
         return self._Match._first(astr, i, self)
+
+    def _newmatch(self, astr, i):
+        self.context.newgroups()
+        return self._match(astr, i)
+    
+    # ----------------------------------------
+    # Public functions
+    
+    def match(self, astr):
+        return self._newmatch(astr, 0)
+
+    def search(self, astr):
+        for i in range(len(astr) + 1):
+            m = self._newmatch(astr, i)
+            if m:
+                return m
+        return None
+
+    def findall(self, astr):
+        return [m.group(0) for m in self.finditer(astr)]
+
+    def finditer(self, astr):
+        i, len_astr = 0, len(astr) # current position within (astr)
+        while i <= len_astr:
+            m = self._newmatch(astr, i)
+            if m:
+                start, end = m.span()
+                if start == end:
+                    # empty match
+                    i += 1
+                else:
+                    i = m._end
+                yield m
+            else:
+                i += 1
 
 
 class Char(Pattern):
@@ -481,10 +582,10 @@ class GreedyQuant(Pattern):
 class Product(Pattern):
     """For regexes of the form '<left-regex><right-regex>'.
     Extra attributes:
-    - _leftpattern, _rightpattern: the left and right patterns.
+    - _leftpattern, _rightpattern: correspond to <left-regex> and <right-regex> above.
     - _leftchild, _rightchild: match objects derived from _leftpattern and
-      _rightpattern, respectively.
-    - """
+      _rightpattern, respectively."""
+    
     class _Match(Match):
         @classmethod
         def _first(cls, astr, i, pattern):
@@ -542,4 +643,5 @@ class Product(Pattern):
         self._context = context
 
 if __name__ == '__main__':
+    # tests
     raise NotImplementedError

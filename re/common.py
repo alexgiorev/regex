@@ -12,6 +12,9 @@ I = IGNORECASE = {object()}
 M = MULTILINE = {object()}
 S = DOTALL = {object()}
 
+def emptyflags():
+    return set()
+
 def contains_flag(flags, flag):
     """Checks if (flag) belongs to the collection of flags (flags)."""
     return flag <= flags
@@ -29,10 +32,16 @@ class Context:
     - flags
     """
     
-    def __init__(self, ngroups, flags):
+    def __init__(self, ngroups=0, flags=None):
         self.groups = None
         self._ngroups = ngroups
-        self.flags = flags
+        self.flags = emptyflags() if flags is None else flags
 
     def newgroups(self):
-        self.groups = [OrderedDict() for k in range(self._ngroups)]
+        """Create the list (result = [None] + odicts), where odicts is a list of
+        OrderedDicts of length (self._ngroups). Parenthesis are numbered
+        starting from 1, so this allows to reference the proper ordered dict
+        using (result[parenthesis_index])."""
+        result = [None]
+        result.extend(OrderedDict() for k in range(self._ngroups))
+        return result
