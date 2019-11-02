@@ -2,7 +2,7 @@ import sys
 
 from collections import OrderedDict
 
-from . import common
+import common
 
 
 class Match:
@@ -104,6 +104,15 @@ class Match:
             raise IndexError(f'No such group: {i}')
     
     def group(self, *indices):
+        """If (not indices), equivalent to group(0). If (len(indices) == 1), let
+        (i = indices[0]). If (i > N or i < 0), where (N) is the number of
+        groups, an IndexError is raised. Otherwise, the matched string of regex
+        (i) is returned. If the regex didn't match, (None) is returned. If it
+        matched multiple times, the string corresponding to the last match is
+        returned. If (len(indices) > 1), a tuple T of is returned, where (T[k]
+        == group(indices[k])). So if (group(1) == 'first'), (group(2) ==
+        'second'), (group(3) == 'third'), then (group(1, 3, 3) == ('first',
+        'third', 'third')."""
         self._check_exhausted()
         def extract(i):            
             self._check_index(i)
@@ -121,11 +130,14 @@ class Match:
             return tuple(extract(i) for i in indices)
 
     def groups(self, default=None):
+        """Mostly equivalent to (self.group(1, 2, ..., N)) where (N) is the
+        number of groups. The difference is that if (group(k) is None), then
+        (result[k] is default)."""
         mstrs = (self.group(i) for i in range(1, self._ngroups + 1))
         return (default if mstr is None else mstr for mstr in mstrs)
 
     def span(self, i=0):
-        return self.start(i, start=True), self.end(i)
+        return (self.start(i), self.end(i))
 
     def _boundary(self, i, hint):
         """Helper for self.start and self.end. Finds the match (m) which has
@@ -147,9 +159,15 @@ class Match:
         return m._start if hint == 'start' else m._end
     
     def start(self, i=0):
+        """If (i) is not a valid group index, None is returned. If
+        (self.group(i) is None), -1 is returned. Otherwise, the start index of
+        (self.group(i)) within (self.string) is returned."""
         return self._boundary(i, 'start')
 
     def end(self, i=0):
+        """If (i) is not a valid group index, None is returned. If
+        (self.group(i) is None), -1 is returned. Otherwise, the end index of
+        (self.group(i)) within (self.string) is returned."""
         return self._boundary(i, 'end')
 
 
@@ -158,12 +176,12 @@ class Pattern:
     
     def _match(self, astr, i):
         """Attempts to make a match at (i). If not possible, None is
-        returned."""
+        returned, otherwise the match object."""
         assert 0 <= i <= len(astr)
         return self._Match._first(astr, i, self)
 
     def _newmatch(self, astr, i):
-        self.context.newgroups()
+        self._context.newgroups()
         return self._match(astr, i)
     
     # ----------------------------------------
@@ -205,12 +223,12 @@ class Char(Pattern):
             m = cls()
             ignorecase = common.contains_flag(pattern._context.flags, common.I)
             
-            if start == len(astr):
+            if i == len(astr):
                 return None
             else:
                 astr_char = astr[i]
                 matches = (pattern._char.lower() == astr_char.lower()
-                           if ignorecase else char == astr_char)
+                           if ignorecase else pattern._char == astr_char)
                 if matches:
                     m.string = astr
                     m._start = i
@@ -219,8 +237,10 @@ class Char(Pattern):
                     m._groups = pattern._context.groups
                     m._mstr = astr_char
                     m._is_exhausted = False
-                m._add_to_groups()
-                return m
+                    m._add_to_groups()
+                    return m
+                else:
+                    return None
 
         def _next(self):
             self._check_exhausted()
@@ -356,7 +376,8 @@ class ZeroWidth(Pattern):
                 return i == 0 or string[i-1] == '\n'
 
             @predicate('$')
-            return i == len(string) or string[i] == '\n'
+            def dollar(string, i):
+                return i == len(string) or string[i] == '\n'
             
         else:
             dct['^'], dct['$'] = A, Z
@@ -642,6 +663,6 @@ class Product(Pattern):
         self._groupi = groupi
         self._context = context
 
+
 if __name__ == '__main__':
-    # tests
     raise NotImplementedError

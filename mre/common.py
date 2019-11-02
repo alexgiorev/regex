@@ -38,10 +38,12 @@ class Context:
         self.flags = emptyflags() if flags is None else flags
 
     def newgroups(self):
-        """Create the list (result = [None] + odicts), where odicts is a list of
-        OrderedDicts of length (self._ngroups). Parenthesis are numbered
-        starting from 1, so this allows to reference the proper ordered dict
-        using (result[parenthesis_index])."""
-        result = [None]
-        result.extend(OrderedDict() for k in range(self._ngroups))
-        return result
+        """Create the list (result = [None] + odicts) and bind it to
+        (self.groups). (odicts) is a list of OrderedDicts of length
+        (self._ngroups). Parenthesis are numbered starting from 1, so this
+        allows to reference the proper ordered dict using
+        (result[parenthesis_index])."""
+        
+        self.groups = [None]
+        self.groups.extend(OrderedDict() for k in range(self._ngroups))
+        
