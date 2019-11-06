@@ -1,3 +1,5 @@
+from collections import OrderedDict
+
 # -------------------- FLAGS --------------------
 
 """
@@ -27,23 +29,23 @@ class Context:
     - groups: None or a list of OrderedDicts. When a list, each odict maps Match
       objects to strings. For a match (m), (m.group(k)) corresponds to the last
       string in (con.groups[k]), where con is the context of (m).
-    - ngroups: the number of groups. If (groups is not None) then (len(groups)
-      == ngroups). This is useful for creating (groups) when it is None.
+    - numgrps: the number of groups. If (groups is not None) then (len(groups)
+      == numgrps). This is useful for creating (groups) when it is None.
     - flags
     """
     
-    def __init__(self, ngroups=0, flags=None):
+    def __init__(self, numgrps=0, flags=None):
         self.groups = None
-        self._ngroups = ngroups
+        self._numgrps = numgrps
         self.flags = emptyflags() if flags is None else flags
 
     def newgroups(self):
         """Create the list (result = [None] + odicts) and bind it to
         (self.groups). (odicts) is a list of OrderedDicts of length
-        (self._ngroups). Parenthesis are numbered starting from 1, so this
+        (self._numgrps). Parenthesis are numbered starting from 1, so this
         allows to reference the proper ordered dict using
         (result[parenthesis_index])."""
         
         self.groups = [None]
-        self.groups.extend(OrderedDict() for k in range(self._ngroups))
+        self.groups.extend(OrderedDict() for k in range(self._numgrps))
         
