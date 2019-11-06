@@ -4,6 +4,8 @@ from collections import OrderedDict
 
 import common
 
+class _Error:
+    pass
 
 class Match:
     """Base class for match objects.
@@ -89,7 +91,7 @@ class Match:
         return self.group(i)
 
     @property
-    def _ngroups(self):
+    def _numgrps(self):
         """Just a helper function which returns the number of groups. Group
         numbers start from 1. (self._groups) is a list whose first element is
         None and all other elements correspond to actual groups. This is why the
@@ -100,20 +102,21 @@ class Match:
         """A helper for the functions which make use of groups."""
         if type(i) is not int:
             raise TypeError(f'Index must be an int, not {type(i)}: {i}')
-        if not 0 <= i <= self._ngroups:
+        if not 0 <= i <= self._numgrps:
             raise IndexError(f'No such group: {i}')
-    
+
     def group(self, *indices):
         """If (not indices), equivalent to group(0). If (len(indices) == 1), let
         (i = indices[0]). If (i > N or i < 0), where (N) is the number of
-        groups, an IndexError is raised. Otherwise, the matched string of regex
-        (i) is returned. If the regex didn't match, (None) is returned. If it
-        matched multiple times, the string corresponding to the last match is
-        returned. If (len(indices) > 1), a tuple T of is returned, where (T[k]
-        == group(indices[k])). So if (group(1) == 'first'), (group(2) ==
-        'second'), (group(3) == 'third'), then (group(1, 3, 3) == ('first',
-        'third', 'third')."""
-        self._check_exhausted()
+        groups, an IndexError is raised. Otherwise, the matched string of the
+        ith subregex is returned. If the ith subregex didn't match, (None) is
+        returned. If it matched multiple times, the string corresponding to the
+        last match is returned. If (len(indices) > 1), a tuple T of is returned,
+        where (T[k] == group(indices[k])). So if (group(1) == 'first'),
+        (group(2) == 'second'), (group(3) == 'third'), then (group(1, 3, 3) ==
+        ('first', 'third', 'third')."""
+        
+        assert not self._is_exhausted
         def extract(i):            
             self._check_index(i)
             if i == 0:
@@ -133,8 +136,8 @@ class Match:
         """Mostly equivalent to (self.group(1, 2, ..., N)) where (N) is the
         number of groups. The difference is that if (group(k) is None), then
         (result[k] is default)."""
-        mstrs = (self.group(i) for i in range(1, self._ngroups + 1))
-        return (default if mstr is None else mstr for mstr in mstrs)
+        mstrs = (self.group(i) for i in range(1, self._numgrps + 1))
+        return tuple(default if mstr is None else mstr for mstr in mstrs)
 
     def span(self, i=0):
         return (self.start(i), self.end(i))
@@ -145,7 +148,7 @@ class Match:
         'start'), the start index of (m) is returned, while if (hint == 'end'),
         the end index is returned."""
         
-        self._check_exhausted()
+        assert not self._is_exhausted
         self._check_index(i)
         if hint not in ('start', 'end'):
             raise ValueError(f'Bad hint: {repr(hint)}')
@@ -188,9 +191,13 @@ class Pattern:
     # Public functions
     
     def match(self, astr):
+        """If (self) matches at the beginning of (astr), the corresponding match
+        object is returned. Otherwise, None."""
         return self._newmatch(astr, 0)
 
     def search(self, astr):
+        """If (self) doesn't match anywhere in (astr), returns None. Otherwise,
+        returns the leftmost match."""
         for i in range(len(astr) + 1):
             m = self._newmatch(astr, i)
             if m:
@@ -198,9 +205,13 @@ class Pattern:
         return None
 
     def findall(self, astr):
+        """Returns a list of all non-overlapping substrings of (astr) which
+        match (self), from left to right."""
         return [m.group(0) for m in self.finditer(astr)]
 
     def finditer(self, astr):
+        """Returns an iterator of all non-overlapping matches of (self) in
+        (astr), from left to right."""
         i, len_astr = 0, len(astr) # current position within (astr)
         while i <= len_astr:
             m = self._newmatch(astr, i)
@@ -214,6 +225,18 @@ class Pattern:
                 yield m
             else:
                 i += 1
+
+    def allstrs(self, astr, i):
+        """Returns a list of all of the substrings of (astr) starting at (i)
+        which match (self). For example, if (self) corresponds to r'a|ab|abc',
+        then (self.allstrings('--abcd--', 2)) will return ['a', 'ab', 'abc']."""
+        m = self._newmatch(astr, i)
+        if not m:
+            return []
+        out = [m.group()]
+        while m._next():
+            out.append(m.group())
+        return out
 
 
 class Char(Pattern):
@@ -245,7 +268,7 @@ class Char(Pattern):
         def _next(self):
             self._check_exhausted()
             self._is_exhausted = True
-            m._start = m._end = m._mstr = None
+            self._start = self._end = self._mstr = None
             return self._remove_from_groups()
 
     def __init__(self, char, groupi, context):
