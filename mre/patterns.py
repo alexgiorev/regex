@@ -2,10 +2,7 @@ import sys
 
 from collections import OrderedDict
 
-import common
-
-class _Error:
-    pass
+from . import common
 
 class Match:
     """Base class for match objects.
@@ -19,13 +16,12 @@ class Match:
     - _is_exhausted
     """
 
-    @classmethod
-    def _first(cls, astr, i, pattern):
-        """Assumes that (0 <= i <= len(astr)). Returns a match corresponding to
-        the first substring of (astr) starting at (i) that matches (pattern), or
-        None if such a string doesn't exist."""
-        raise NotImplementedError
     
+    # def __new__(cls, astr, i, pattern):
+    # Assumes that (0 <= i <= len(astr)). Returns a match corresponding to
+    # the first substring of (astr) starting at (i) that matches (pattern), or
+    # None if such a string doesn't exist.
+
     def _next(self):
         """When trying to match a pattern (P) at a given position (i) in a
         string (S), more than one such substrings are possible. When (self) is
@@ -83,7 +79,7 @@ class Match:
 
     # ----------------------------------------
     # Public functions and their helpers
-        
+
     def __bool__(self):
         return True
 
@@ -150,8 +146,6 @@ class Match:
         
         assert not self._is_exhausted
         self._check_index(i)
-        if hint not in ('start', 'end'):
-            raise ValueError(f'Bad hint: {repr(hint)}')
         if i == 0:
             m = self
         else:
@@ -175,16 +169,41 @@ class Match:
 
 
 class Pattern:
-    """Base class for patterns."""
+    """Base class for patterns.
+
+    Patterns can have subpatterns, so they can form a tree. For example,
+    r'(ab)*' Consists of 4 patterns total. A star quantifier, which has a single
+    child, which is a concatenation operator which has two children, the letters
+    'a' and 'b'.
+
+    All patterns in a pattern tree share the same context, which is the _context
+    attribute, so that (p1._context is p2._context) for any two patterns p1,p2
+    in the same tree.
+
+    A pattern also has a group index (the _groupi) attribute, so that successful
+    matches know where to put their matched strings.
+
+    All pattern classes also have a _Match inner class. All matches generted
+    from a pattern are instances of it's _Match. These _Match classes are where
+    most of the matching logic is present.
+    """
+
+    # ----------------------------------------
+    # _match functions
+    """What is the difference between _match and _newmatch? _newmatch creates new
+    groups for the pattern tree, whereas _match uses the current groups. _match is
+    used during the matching process, e.g. by parents who need to match the child as
+    part of their own matching logic. _newmatch is called only once during the
+    matching process of the root pattern."""
     
     def _match(self, astr, i):
-        """Attempts to make a match at (i). If not possible, None is
-        returned, otherwise the match object."""
+        """If a substring of (astr) starting at (i) matches (self), the
+        corresponding match object is returned. Otherwise, None."""
         assert 0 <= i <= len(astr)
-        return self._Match._first(astr, i, self)
-
+        return self._Match(astr, i, self)
+    
     def _newmatch(self, astr, i):
-        self._context.newgroups()
+        self._context.initialize()
         return self._match(astr, i)
     
     # ----------------------------------------
@@ -229,7 +248,7 @@ class Pattern:
     def allstrs(self, astr, i):
         """Returns a list of all of the substrings of (astr) starting at (i)
         which match (self). For example, if (self) corresponds to r'a|ab|abc',
-        then (self.allstrings('--abcd--', 2)) will return ['a', 'ab', 'abc']."""
+        then (self.allstrs('--abcd--', 2)) will return ['a', 'ab', 'abc']."""
         m = self._newmatch(astr, i)
         if not m:
             return []
@@ -241,8 +260,9 @@ class Pattern:
 
 class Char(Pattern):
     class _Match(Match):
-        @classmethod
-        def _first(cls, astr, i, pattern):
+        """No extra attributes."""
+        
+        def __new__(cls, astr, i, pattern):
             m = cls()
             ignorecase = common.contains_flag(pattern._context.flags, common.I)
             
@@ -279,8 +299,7 @@ class Char(Pattern):
 
 class CharClass(Pattern):
     class _Match(Match):
-        @classmethod
-        def _first(cls, astr, i, pattern):            
+        def __new__(cls, astr, i, pattern):            
             ignorecase = common.contains_flag(pattern._context.flags, common.I)            
             if start == len(astr):
                 return None
@@ -329,8 +348,7 @@ class ZeroWidth(Pattern):
     corresponding to it."""
     
     class _Match(Match):
-        @classmethod
-        def _first(cls, string, i, pattern):
+        def __new__(cls, string, i, pattern):
             if pattern._pred(self.string, i):
                 m = cls()
                 m.string = string
@@ -421,8 +439,7 @@ class BackRef(Pattern):
     """Pattern for regexes of the form r'\<int>', where <int> is some positive
     integer."""
     def _Match(Match):
-        @classmethod
-        def _first(cls, astr, i, pattern):
+        def __new__(cls, astr, i, pattern):
             ref, groups = pattern._ref, pattern._context.groups
             ignorecase = common.contains_flag(pattern._context.flags, common.I)
             
@@ -469,10 +486,8 @@ class Alternative(Pattern):
     
     class _Match(Match):
         """Exhausted when (self._m is None and not self._atleft)."""
-        @classmethod
-        def _first(cls, astr, i, pattern):
+        def __new__(cls, astr, i, pattern):
             def init(left):
-                # string, _mstr, _groupi, _groups, _start, _end, _is_exhausted
                 m.string = astr
                 m.groupi, m.groups = pattern._groupi, pattern._context.groups
                 m._is_exhausted = False
@@ -524,7 +539,8 @@ class Alternative(Pattern):
         
 class GreedyQuant(Pattern):
     """All quantifiers are implemented by this class. This includes '*', '+',
-    '?', '{m,n}'. A quantifier has a lower and upper bound. Here is a mapping from operators to bounds:
+    '?', '{m,n}'. A quantifier has a lower and upper bound. Here is a mapping
+    from operators to bounds:
     - '*' -> (0, inf)
     - '+' -> (1, inf)
     - '?' -> (0, 1)
@@ -538,10 +554,7 @@ class GreedyQuant(Pattern):
     - _base: the pattern used to form the children."""
     
     class _Match(Match):
-        @classmethod
-        def _first(cls, astr, i, pattern):
-            # string, _mstr, _groupi, _groups, _start, _end, _is_exhausted
-
+        def __new__(cls, astr, i, pattern):
             # partially initialize first, so that some methods can be used.
             m = cls()
             m.string = astr
@@ -631,8 +644,7 @@ class Product(Pattern):
       _rightpattern, respectively."""
     
     class _Match(Match):
-        @classmethod
-        def _first(cls, astr, i, pattern):
+        def __new__(cls, astr, i, pattern):
             leftmatch = pattern._left._match(astr, i)
             if not leftmatch:
                 return None
@@ -686,6 +698,3 @@ class Product(Pattern):
         self._groupi = groupi
         self._context = context
 
-
-if __name__ == '__main__':
-    raise NotImplementedError
