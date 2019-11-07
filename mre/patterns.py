@@ -16,7 +16,7 @@ class Match:
     - _is_exhausted
     """
 
-    
+    # __new__ documentation:
     # def __new__(cls, astr, i, pattern):
     # Assumes that (0 <= i <= len(astr)). Returns a match corresponding to
     # the first substring of (astr) starting at (i) that matches (pattern), or
@@ -343,9 +343,9 @@ class ZeroWidth(Pattern):
     boundaries r'\b', caret '^' and dollar '$', and positive lookaheads
     (?=regex). All of those (and more) are handled by this class. The idea is
     that a predicate function (the _pred attribute of a ZeroWidth instance) is
-    used to determine if the condition at (i) holds. Various class methods serve
-    to create the predicate function and return the zero-width pattern
-    corresponding to it."""
+    used to determine if the condition at (i) holds. Various class methods in
+    this class serve to create the predicate function and return the zero-width
+    pattern corresponding to it."""
     
     class _Match(Match):
         def __new__(cls, string, i, pattern):
@@ -378,57 +378,58 @@ class ZeroWidth(Pattern):
                 else lambda string, i: not bool(pattern._match(string, i)))        
         return cls(pred, groupi, context)
 
+    # ----------------------------------------
+    # (fromstr) and it's helpers. (fromstr) is useful for zero-width assertions
+    # like '^', '$', r'\b', 'A', etc. Allows extension via binding strings in
+    # _fromstr_dict to predicates (or just use _fromstr_pred).
+    
+    _fromstr_dict = {}
+
+    def _fromstr_pred(letter):
+        def decorator(func):
+            dct[letter] = func
+            return func
+        return decorator
+
+    @_fromstr_pred(r'\b')
+    def b(string, i):
+        if i == 0 or i == len(string):
+            return True
+        c1, c2 = string[i-1], string[i]
+        return not (c1.isalnum() and c2.isalnum())
+
+    @_fromstr_pred(r'\B')
+    def B(string, i):
+        return not b(string, i)
+
+    @_fromstr_pred(r'\A')
+    def A(string, i):
+        return i == 0
+
+    @_fromstr_pred(r'\Z')
+    def Z(string, i):
+        return i == len(string)
+
+    if common.contains_flag(context.flags, re.M):
+        @_fromstr_pred('^')
+        def caret(string, i):
+            return i == 0 or string[i-1] == '\n'
+        @_fromstr_pred('$')
+        def dollar(string, i):
+            return i == len(string) or string[i] == '\n'
+    else:
+        dct['^'], dct['$'] = A, Z
+
     @classmethod
-    def from_str(cls, letter, groupi, context):
-        """Assumes (letter in {'^', '$', r'\b', r'\B', r'\A', r'\Z'}). Returns
-        the corresponding zero width assertion pattern. For example, when
-        (letter == r'\b'), returns the word boundary zero width pattern."""
-        
-        dct = {} # maps strings to predicates
-
-        def predicate(letter):
-            def decorator(func):
-                dct[letter] = func
-                return func
-            return decorator
-
-        @predicate(r'\b')
-        def b(string, i):
-            if i == 0 or i == len(string):
-                return True
-            c1, c2 = string[i-1], string[i]
-            return not (c1.isalnum() and c2.isalnum())
-
-        @predicate(r'\B')
-        def B(string, i):
-            return not b(string, i)
-
-        @predicate(r'\A')
-        def A(string, i):
-            return i == 0
-
-        @predicate(r'\Z')
-        def Z(string, i):
-            return i == len(string)
-
-        if common.contains_flag(context.flags, re.M):
-            @predicate('^')
-            def caret(string, i):
-                return i == 0 or string[i-1] == '\n'
-
-            @predicate('$')
-            def dollar(string, i):
-                return i == len(string) or string[i] == '\n'
-            
-        else:
-            dct['^'], dct['$'] = A, Z
-
-        pred = dct.get(letter)
+    def fromstr(cls, letter, groupi, context):
+        pred = cls._fromstr_dict.get(letter)
         if pred is None:
-            raise ValueError(f'The letter "{letter}" does not correspond to a zero-width assertion.')
-        
+            raise ValueError(f'No zero-width assertion for "{letter}"')
         return cls(pred, groupi, context)
 
+    # end from_str
+    # ----------------------------------------
+    
     def __init__(self, pred, groupi, context):
         self._pred = pred
         self._groupi = groupi
