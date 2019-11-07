@@ -25,6 +25,21 @@ def contains_flag(flags, flag):
 
 class Context:
     """
+    A Context contains the global information needed by the nodes of a pattern
+    tree during matching. For example, all nodes share the same flags and
+    groups. The flags and groups can be used as part of the matching logic of
+    any pattern and subpattern of the pattern tree to which the context
+    pertains.
+
+    Contexts allow for the implementation of backreferencing. For example r'\3'
+    could be implemented by simply referring to (context.groups[3]), where
+    (context) belongs to the backreference pattern.
+
+    A context is also used as an indirection layer to allow new groups and flags
+    to be quickly updated for all subpatterns globally. Since all subpatterns
+    alias the same context instance, creating new groups to be shared by all is
+    simply done by changing (context.groups) in one subpattern.
+
     Attributes:
     - groups: None or a list of OrderedDicts. When a list, each odict maps Match
       objects to strings. For a match (m), (m.group(k)) corresponds to the last
@@ -39,7 +54,7 @@ class Context:
         self._numgrps = numgrps
         self.flags = emptyflags() if flags is None else flags
 
-    def newgroups(self):
+    def initialize(self):
         """Create the list (result = [None] + odicts) and bind it to
         (self.groups). (odicts) is a list of OrderedDicts of length
         (self._numgrps). Parenthesis are numbered starting from 1, so this
