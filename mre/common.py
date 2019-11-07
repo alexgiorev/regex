@@ -96,3 +96,16 @@ class Context:
         self.groups = [None]
         self.groups.extend(OrderedDict() for k in range(self._numgrps))
         
+# ----------------------------------------
+# utilities
+
+def latest(groups, i, hint='str'):
+    """For (groups) at (i), returns the lates string or match, when (hint ==
+    'str') or (hint == 'match') respectively. If there is nothing stored at (i),
+    None is returned."""
+    assert hint in ('str', 'match')
+    odict = groups[i]
+    if not odict:
+        return None
+    itr = odict.values() if hint == 'str' else odict.keys()
+    return next(reversed(itr))

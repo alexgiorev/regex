@@ -117,10 +117,7 @@ class Match:
             self._check_index(i)
             if i == 0:
                 return self._mstr
-            odict = self._groups[i]
-            if not odict:
-                return None
-            return next(reversed(odict.values()))
+            return common.latest(self._groups, i)
         if len(indices) == 0:
             return extract(0)
         elif len(indices) == 1:
@@ -149,10 +146,9 @@ class Match:
         if i == 0:
             m = self
         else:
-            odict = self._groups[i]
-            if not odict:
+            m = common.latest(self._groups, i, hint='match')
+            if m is None:
                 return -1
-            m = next(reversed(odict))
         return m._start if hint == 'start' else m._end
     
     def start(self, i=0):
@@ -439,15 +435,14 @@ class ZeroWidth(Pattern):
 class BackRef(Pattern):
     """Pattern for regexes of the form r'\<int>', where <int> is some positive
     integer."""
+    
     def _Match(Match):
         def __new__(cls, astr, i, pattern):
             ref, groups = pattern._ref, pattern._context.groups
             ignorecase = common.contains_flag(pattern._context.flags, common.I)
-            
-            odict = groups[ref]
-            if not odict:
+            mstr = common.latest(groups, ref)
+            if mstr is None:
                 return None
-            mstr = next(reversed(odict.values())) # the latest matched string
             end = i + len(mstr)
             substr = astr[i: end]
             matches = (mstr.lower() == substr.lower() if ignorecase
