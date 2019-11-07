@@ -41,12 +41,33 @@ class Context:
     simply done by changing (context.groups) in one subpattern.
 
     Attributes:
-    - groups: None or a list of OrderedDicts. When a list, each odict maps Match
-      objects to strings. For a match (m), (m.group(k)) corresponds to the last
-      string in (con.groups[k]), where con is the context of (m).
+    - groups: None or a list of OrderedDicts which map match objects to the
+      strings they match. The reasons for this data structure choice is outlined
+      next:
+      
+      Lets consider an example: we have a pattern (P) with group index (i). Lets
+      assume it's parent is the star quantifier '*'. The parent finds 3 matches
+      of (P), (m1, m2, m3). At this point parent.group(i) will return the string
+      matched by (m3). But assume the parent is then asked to backtrack, and
+      it's state changes to (m1, m2). Then we want parent.group(i) to result in
+      (m2)'s string. So at first we have context.groups[i] = {m1: m1_string, m2:
+      m2_string, m3: m3_string}, and since pattern.group(i) simply returns the
+      last string of pattern.context.groups[i], it will return m3_string. As
+      part of backtracking, the parent removes m3 from the odict, so that
+      context.groups becomes {m1: m1_string, m2: m2_string} so that
+      parent.group(i) returns m2_string.
+    
+      In general, a given group index can be occupied by more than one match
+      objects. A match can be alive for a while, but discarded for backtracking
+      needs. When discarding, we must remove the proper string, the one
+      belonging to that match, which is why a dict is used. But when getting the
+      matched string at some group index, we want the latest one, which is why
+      order is needed. The combination of order and mapping requirements yields
+      the OrderedDict choice.
+
     - numgrps: the number of groups. If (groups is not None) then (len(groups)
       == numgrps). This is useful for creating (groups) when it is None.
-    - flags
+    - flags: For example, IGNORECASE, MULTILINE, etc.
     """
     
     def __init__(self, numgrps=0, flags=None):
