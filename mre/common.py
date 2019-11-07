@@ -10,10 +10,21 @@ bitwise-or operator. (flag1 | flag2 | flag3) results in a collection of flags
 which contains flag1, flag2 and flag3.
 """
 
-I = IGNORECASE = {object()}
-M = MULTILINE = {object()}
-S = DOTALL = {object()}
+# This data structure serves as a single point of control for the kinds of
+# flags. If a new flag is to be added, simply bind a tuple of the flag's names
+# to {object()}. The flag can then be referenced via those names from both this
+# module and the global one, because both call define_flags(globals())
+_flags = {('I', 'IGNORECASE'): {object()},
+          ('M', 'MULTILINE'): {object()},
+          ('S', 'DOTALL'): {object()}}
 
+def define_flags(ns):
+    for t, v in _flags.items():
+        for k in t:
+            ns[k] = v
+
+define_flags(globals())
+            
 def emptyflags():
     return set()
 
