@@ -205,15 +205,19 @@ class Pattern:
     # ----------------------------------------
     # Public functions
     
-    def match(self, astr):
+    def match(self, astr, start=0):
         """If (self) matches at the beginning of (astr), the corresponding match
         object is returned. Otherwise, None."""
-        return self._newmatch(astr, 0)
+        return self._newmatch(astr, start)
 
-    def search(self, astr):
-        """If (self) doesn't match anywhere in (astr), returns None. Otherwise,
-        returns the leftmost match."""
-        for i in range(len(astr) + 1):
+    def search(self, astr, start=0, end=None):
+        """Tries to match (self) at indexes [start, ..., end]. If not
+        unsuccessful, None is returned."""
+        if end is None:
+            end = len(astr)
+        if start > end:
+            raise ValueError(f'(start <= end) must hold. Given {start},{end}')
+        for i in range(start, len(astr) + 1):
             m = self._newmatch(astr, i)
             if m:
                 return m
@@ -259,7 +263,7 @@ class Char(Pattern):
         """No extra attributes."""
         
         def __new__(cls, astr, i, pattern):
-            m = cls()
+            m = object.__new__(cls)
             ignorecase = common.contains_flag(pattern._context.flags, common.I)
             
             if i == len(astr):
@@ -297,14 +301,14 @@ class CharClass(Pattern):
     class _Match(Match):
         def __new__(cls, astr, i, pattern):            
             ignorecase = common.contains_flag(pattern._context.flags, common.I)            
-            if start == len(astr):
+            if i == len(astr):
                 return None
             else:
                 astr_char = astr[i]
-                matches = ((astr_char.lower() if ignorecase else char)
-                           in self._chars)
+                matches = ((astr_char.lower() if ignorecase else astr_char)
+                           in pattern._chars)
                 if matches:
-                    m = cls()
+                    m = object.__new__(cls)
                     m.string = astr
                     m._start = i
                     m._end = i + 1
@@ -320,7 +324,7 @@ class CharClass(Pattern):
         def _next(self):
             self._check_exhausted()
             self._is_exhausted = True
-            m._mstr = m._start = m._end = None
+            self._mstr = self._start = self._end = None
             return self._remove_from_groups()
                 
     def __init__(self, chars, groupi, context):
@@ -345,8 +349,8 @@ class ZeroWidth(Pattern):
     
     class _Match(Match):
         def __new__(cls, string, i, pattern):
-            if pattern._pred(self.string, i):
-                m = cls()
+            if pattern._pred(string, i):
+                m = object.__new__(cls)
                 m.string = string
                 m._mstr = ''
                 m._groupi = pattern._groupi
@@ -407,7 +411,7 @@ class ZeroWidth(Pattern):
         def Z(string, i):
             return i == len(string)
 
-        if common.contains_flag(context.flags, re.M):
+        if common.contains_flag(context.flags, common.M):
             @predicate('^')
             def caret(string, i):
                 return i == 0 or string[i-1] == '\n'
@@ -441,11 +445,11 @@ class BackRef(Pattern):
             if mstr is None:
                 return None
             end = i + len(mstr)
-            substr = astr[i: end]
+            substr = astr[i:end]
             matches = (mstr.lower() == substr.lower() if ignorecase
                        else mstr == substr)
             if matches:
-                m = cls()
+                m = object.__new__(cls)
                 m.string, m._mstr = astr, substr
                 m._groupi, m._groups = pattern._groupi, groups      
                 m._start, m._end = i, end
@@ -490,7 +494,7 @@ class Alternative(Pattern):
                 m._refresh()
                 return m
                 
-            m = cls()
+            m = object.__new__(cls)
             child = pattern._left._match(astr, i)
             if child:
                 return init(left=True)
@@ -548,11 +552,11 @@ class GreedyQuant(Pattern):
     
     class _Match(Match):
         def __new__(cls, astr, i, pattern):
-            m = cls()
+            m = object.__new__(cls)
             m.string = astr
-            m._mstr = None
-            m._groupi, m._groups = pattern._groupi, pattern._context._groups
-            m._start = m._end = i
+            # no need to set _mstr and _end; they are properties
+            m._groupi, m._groups = pattern._groupi, pattern._context.groups
+            m._start = i
             m._is_exhausted = False
             m._low, m._high = pattern._low, pattern._high
             m._children = []
@@ -619,7 +623,7 @@ class GreedyQuant(Pattern):
                 if i == end:
                     break
                 i = end
-                
+
     def __init__(self, child, low, high, groupi, context):
         self._child = child
         self._low = low
@@ -646,7 +650,7 @@ class Product(Pattern):
                 rightmatch = pattern._right._match(astr, leftmatch._end)
                 if rightmatch:
                     # initialize and return
-                    m = cls()
+                    m = object.__new__(cls)
                     m.string = astr
                     # _mstr and _end are properties, no need to assign them here.
                     m._groupi = pattern._groupi
@@ -659,7 +663,7 @@ class Product(Pattern):
                     m._rightchild = rightmatch
                     m._add_to_groups()
                     return m
-                if not lm._next():
+                if not leftmatch._next():
                     return None
 
         @property
@@ -677,7 +681,8 @@ class Product(Pattern):
                 return self._add_to_groups()
             else:
                 while self._leftchild._next():
-                    rightmatch = self._rightpattern._match(self.string, leftmatch._end)
+                    rightmatch = self._rightpattern._match(
+                        self.string, self._leftchild._end)
                     if rightmatch:
                         self._rightchild = rightmatch
                         return self._add_to_groups()
