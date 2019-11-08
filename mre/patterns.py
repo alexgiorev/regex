@@ -186,6 +186,7 @@ class Pattern:
 
     # ----------------------------------------
     # _match functions
+    
     """What is the difference between _match and _newmatch? _newmatch creates new
     groups for the pattern tree, whereas _match uses the current groups. _match is
     used during the matching process, e.g. by parents who need to match the child as
@@ -437,7 +438,7 @@ class BackRef(Pattern):
     """Pattern for regexes of the form r'\<int>', where <int> is some positive
     integer."""
     
-    def _Match(Match):
+    class _Match(Match):
         def __new__(cls, astr, i, pattern):
             ref, groups = pattern._ref, pattern._context.groups
             ignorecase = common.contains_flag(pattern._context.flags, common.I)
