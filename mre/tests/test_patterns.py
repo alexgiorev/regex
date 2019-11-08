@@ -155,6 +155,43 @@ class Test(unittest.TestCase):
 
         m = p.search('ab-cd gh-12', start=1)
         self.assertEqual(m.group(1,2), m.groups(), ('gh','12'))
+        
+    def test_double_word(self):
+        # r'\b(\w+)\s+\1\b'
+        def makeit(ignorecase):            
+            context = common.Context(numgrps=1)
+            flags = common.I if ignorecase else None
+            context = common.Context(numgrps=1, flags=flags)
+            b1 = ZeroWidth.fromstr(r'\b', None, context)
+            b2 = ZeroWidth.fromstr(r'\b', None, context)
+            word = word_pattern(1, context)
+            s = space_class(None, context)
+            bref = BackRef(1, None, context)
+            return concat(None, context, b1, word, s, bref, b2)
+
+        p = makeit(False)
+        m = p.match('the the')
+        self.assertTrue(m)
+
+        l = p.findall("""
+        In November 2009, a a researcher at at the the Rey Juan Carlos
+        University in Madrid found that the English Wikipedia had lost lost
+        49,000 editors during the first three months of 2009 2009;""")
+        self.assertEqual(
+            l, ['a a', 'at at', 'the the', 'lost lost', '2009 2009'])
+
+        p = makeit(True)
+        m = p.match('abc AbC')
+        self.assertEqual(m.group(), 'abc AbC')
+
+        l = p.findall("""
+        In November 2009, a a researcher at aT tHe the Rey Juan Carlos
+        University in Madrid found that the English Wikipedia had LosT loSt
+        49,000 editors during the first three months of 2009 2009;""")
+        self.assertEqual(
+            l, ['a a', 'at aT', 'tHe the', 'LosT loSt', '2009 2009'])
+
+        
 
 def main():
     unittest.main(__name__)
