@@ -551,7 +551,6 @@ class GreedyQuant(Pattern):
     
     class _Match(Match):
         def __new__(cls, astr, i, pattern):
-            # partially initialize first, so that some methods can be used.
             m = cls()
             m.string = astr
             m._mstr = None
@@ -563,7 +562,7 @@ class GreedyQuant(Pattern):
             m._base = pattern._child
             
             m._take()
-            while len(m._children) < m._high:
+            while len(m._children) < m._low:
                 if not m._next_high():
                     return None
             m._add_to_groups()
@@ -633,13 +632,15 @@ class GreedyQuant(Pattern):
 
 
 class Product(Pattern):
-    """For regexes of the form '<left-regex><right-regex>'.
-    Extra attributes:
-    - _leftpattern, _rightpattern: correspond to <left-regex> and <right-regex> above.
-    - _leftchild, _rightchild: match objects derived from _leftpattern and
-      _rightpattern, respectively."""
+    """For regexes of the form '<left-regex><right-regex>'."""
     
     class _Match(Match):
+        """Extra attributes:
+        - _leftpattern, _rightpattern: correspond to <left-regex> and <right-regex> above.
+        - _leftchild, _rightchild: match objects derived from _leftpattern and
+        _rightpattern, respectively.
+        """
+        
         def __new__(cls, astr, i, pattern):
             leftmatch = pattern._left._match(astr, i)
             if not leftmatch:
