@@ -374,57 +374,54 @@ class ZeroWidth(Pattern):
                 else lambda string, i: not bool(pattern._match(string, i)))        
         return cls(pred, groupi, context)
 
-    # ----------------------------------------
-    # (fromstr) and it's helpers. (fromstr) is useful for zero-width assertions
-    # like '^', '$', r'\b', 'A', etc. Allows extension via binding strings in
-    # _fromstr_dict to predicates (or just use _fromstr_pred).
-    
-    _fromstr_dict = {}
-
-    def _fromstr_pred(letter):
-        def decorator(func):
-            dct[letter] = func
-            return func
-        return decorator
-
-    @_fromstr_pred(r'\b')
-    def b(string, i):
-        if i == 0 or i == len(string):
-            return True
-        c1, c2 = string[i-1], string[i]
-        return not (c1.isalnum() and c2.isalnum())
-
-    @_fromstr_pred(r'\B')
-    def B(string, i):
-        return not b(string, i)
-
-    @_fromstr_pred(r'\A')
-    def A(string, i):
-        return i == 0
-
-    @_fromstr_pred(r'\Z')
-    def Z(string, i):
-        return i == len(string)
-
-    if common.contains_flag(context.flags, re.M):
-        @_fromstr_pred('^')
-        def caret(string, i):
-            return i == 0 or string[i-1] == '\n'
-        @_fromstr_pred('$')
-        def dollar(string, i):
-            return i == len(string) or string[i] == '\n'
-    else:
-        dct['^'], dct['$'] = A, Z
-
     @classmethod
     def fromstr(cls, letter, groupi, context):
-        pred = cls._fromstr_dict.get(letter)
-        if pred is None:
-            raise ValueError(f'No zero-width assertion for "{letter}"')
-        return cls(pred, groupi, context)
+        """Assumes (letter in {'^', '$', r'\b', r'\B', r'\A', r'\Z'}). Returns
+        the corresponding zero width assertion pattern. For example, when
+        (letter == r'\b'), returns the word boundary zero width pattern."""
+        
+        dct = {} # maps strings to predicates
 
-    # end from_str
-    # ----------------------------------------
+        def predicate(letter):
+            def decorator(func):
+                dct[letter] = func
+                return func
+            return decorator
+
+        @predicate(r'\b')
+        def b(string, i):
+            if i == 0 or i == len(string):
+                return True
+            c1, c2 = string[i-1], string[i]
+            return not (c1.isalnum() and c2.isalnum())
+
+        @predicate(r'\B')
+        def B(string, i):
+            return not b(string, i)
+
+        @predicate(r'\A')
+        def A(string, i):
+            return i == 0
+
+        @predicate(r'\Z')
+        def Z(string, i):
+            return i == len(string)
+
+        if common.contains_flag(context.flags, re.M):
+            @predicate('^')
+            def caret(string, i):
+                return i == 0 or string[i-1] == '\n'
+            @predicate('$')
+            def dollar(string, i):
+                return i == len(string) or string[i] == '\n'
+        else:
+            dct['^'], dct['$'] = A, Z
+
+        pred = dct.get(letter)
+        if pred is None:
+            raise ValueError(f'The letter "{letter}" does not correspond to a zero-width assertion.')
+        
+        return cls(pred, groupi, context)
     
     def __init__(self, pred, groupi, context):
         self._pred = pred
