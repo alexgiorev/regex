@@ -1,5 +1,7 @@
 import itertools
 import string
+from collections import namedtuple
+from types import SimpleNamespace
 
 from collections import deque
 
@@ -7,6 +9,7 @@ ALL = frozenset(chr(i) for i in range(128)) # whole ALL character set.
 DIGIT = frozenset(string.digits)
 ALPHANUMERIC = frozenset(string.ascii_letters + string.digits + '_')
 WHITESPACE = frozenset(string.whitespace)
+# shorthands for character classes
 CHARSHORTS = {'d': DIGIT,
               'D': ALL - DIGIT,
               's': WHITESPACE,
@@ -18,83 +21,120 @@ HEXDIGITS = f'0123456789abcdefABCDEF'
 ESCAPECHARS = {'a': '\a', 'f': '\f', 'n': '\n', 'r': '\r',
                't': '\t', 'v': '\v', 'b': '\b'}
 
+# ----------------------------------------
+# Tokenization
+
+Token = namedtuple('Token', 'type data')
+
+"""
+For some tokens, due to a lack of imagination, the type and lexeme match. For
+example, for the token '(?:', the type is also written as '(?:' so that the
+whole token is ('(?:', '(?:')
+
+The possible tokens are:
+- characters: (type='char', data=<char>). For example, ('char', 'A'), ('char',
+  '\n')
+- Parenthesis tokens. The possible types are {'(', '(?:', '(?=', '(?!',
+  ')'}. The (data) field is always None.
+- Character classes: (type='char-class', data=<set>). Here <set> is a set of
+  characters which appear in the class. So if the text is '[a-d1-5]', the token
+  will be (type='char-class', data=set('abcd')|set('12345')). This kind of token
+  encompasses escapes like (r'\d', r'\D', r'\s', r'\S', r'\w', r'\W'). For
+  example, r'\d' will expand to the token (type='char-class',
+  data=set('0123456789'))
+- Zero width assertions. The possible types are {'^', '$', r'\A', r'\Z', r'\b',
+  r'\B'}. For all, the (data) field is None.
+- Backreferences: (type='bref', data=<int>) where <int> is an integer >= 1
+- Some operators; the (type) is the operator, the (data) is None. The possible
+  types are {'|'}
+- Greedy quantifiers: (type='greedy-quant', data=(<low>, <high>)). <low> and <high>
+  are integers, with <low> <= <high>. This token group encompasses regex
+  operators like '*', '+', '?', '{<low>, <high>}'. The mapping from operators to token is:
+  '*' -> ('greedy-quant', (0, None))
+  '+' -> ('greedy-quant', (1, None))
+  '?' -> ('greedy-quant', (0, 1))
+  '{<low>,<high>}' -> ('greedy-quant', (int(<low>), int(<high>)))
+
+How regex parts map to tokens:
+- character class: (type='char-class', data=<set>)
+- Dot: (type='char-class', data=<set>). Here <set> is either the set of all
+  ascii characters, or all except '\n'. This depends on the DOTALL flag's
+  presense.
+- '\<digits>': (type='bref', data=int(<digits>))
+- '\d', '\D', '\s', '\S', '\w', '\W': (type='char-class', data=<set>).
+- '^', '$', '\A', '\b', '\B', '\Z', '|', '(', '(?:', '(?=', '(?!', ')': (type)
+  matches operator strings, (data) is None. For example, '(?=' maps to
+  (type='(?=', data=None).
+- '+', '*', '?', '{m,n}': (type='greedy-quant', data=(<low>,<high>))
+"""
+
 tokenfuncs = []
+
+# tns = tokenization name space
+tns = SimpleNamespace('regstr'=None, 'pos'=None, flags=None)
+
+def exhausted():
+    return len(tns.regstr) == tns.pos
+
+def current():
+    if exhausted():
+        return None
+    return tns.regstr[tns.pos]
+
+def rest():
+    return tns.regstr[tns.pos:]
+
+# not needed
+def nextch():
+    if exhausted():
+        return None
+    ch = tns.regstr[tns.pos]
+    tns.pos += 1
+    return ch
+
+# not needed
+def seek(i, how='cur'):
+    if how == 'cur':
+        tns.pos = max(0, min(len(tns.regstr), tns.pos + i))
+        return tns.pos
+    elif how == 'set':
+        tns.pos = max(0, min(len(tns.regstr), i))
+    else:
+        raise ValueError(f'Bad how: "{how}"')
 
 def tokenfunc(func):
     tokenfuncs.append(func)
     return func
 
-def tokenize(restr, flags):
-    """
-    A token is a pair (type, lexeme). For some tokens, due to a lack of
-    imagination, the type and lexeme match. For example, for the token '(?:',
-    the type is also written as '(?:' so that the whole token is ('(?:', '(?:')
-
-    The possible tokens are:
-    - characters: ('char', <char>). For example, ('char', 'A'), ('char', '\n')
-    - Parenthesis tokens. The types and the lexemes match. All possible types
-      are {'(', '(?:', '(?=', '(?!', ')'}
-    - Character classes: ('char-class', set). Here (set) is a set of characters
-      which appear in the class. So if the text is '[a-d1-5]', the token will be
-      ('char-class', set('abcd')|set('12345'))
-    - {'^', '$', '\A', '\Z', '\b', '\B'}. Zero width assertions. As with
-      parenthesis, the types and the lexemes match.
-    - Group references: ('group-index', int) where (int) is an integer >= 1
-    - ('|', '|')
-    - ('greedy-quant', (int, int)). See below for details.
-
-    r'\d', r'\D', r'\s', r'\S', r'\w', r'\W' simply  expand to character
-    classes. For example, r'\d' will expand to ('char-class', set('0123456789'))
-
-    The greedy quantifiers all expand to the same type of token 'greedy-quant':
-    '*' -> ('greedy-quant', (0, None))
-    '+' -> ('greedy-quant', (1, None))
-    '?' -> ('greedy-quant', (0, 1))
-    {m,n} -> ('greedy-quant', (int(m), int(n)))
-    """
-    
+# main function
+def tokenize(regstr, flags):
+    """Transforms (regstr) into a list of tokens and returns it. Raises
+    ValueError if (regstr) is flawed."""
+    tns.regstr, tns.pos, tns.flags = regstr, 0, flags
     tokens = []
-    i, size = 0, len(restr)
-    while i < size:
+    size = len(regstr)
+    while not exhausted():
         for tf in tokenfuncs:
-            token, taken = tf(restr, i)
+            token = tf()
             if token is not None:
                 tokens.append(token)
-                i += taken
                 break
         else:
-            raise ValueError(f'Cannot extract a token from "{restr[i:]}"')
+            raise ValueError(f'Cannot extract a token from "{rest()}"')
     return tokens
 
 @tokenfunc
-def backlash(restr, i):    
-    def error():
-        raise ValueError(f'Bad escape: "{restr[i]}"')
-
-    if restr[i] != '\\':
-        return (None, None)    
-    if i == len(restr) - 1:
-        error()
-    nxt = restr[i+1]
-    dct = {'A': (r'\A', r'\A'), 'b': (r'\b', r'\b'),
-           'B': (r'\B', r'\B'), 'Z': (r'\Z', r'\Z')}    
-    if nxt in dct:
-        return dct[nxt], 2        
-    if nxt in CHARSHORTS:
-        return ('char-class', CHARSHORTS[nxt]), 2
-    if nxt in SPECIAL:
-        return ('char', nxt), 2
-    if nxt.isdigit():
-        digits = _digits(restr, i+1)
-        return ('group-index', int(digits)), len(digits)
-    if nxt == 'x':
-        nxt2 = restr[i+2: i+4]
-        if len(nxt2) < 2 or all(c in HEXDIGITS for c in nxt2):
-            error()
-        return ('char', chr(int(nxt2, 16))), 4
-    if nxt in ESCAPECHARS:
-        return ('char', ESCAPECHARS[nxt]), 2
-    error()
+def simple():
+    """For tokens whose type matches the characters in the regex string, and
+    whose data is None."""    
+    types = ('^', '$', r'\A', r'\b', r'\B', r'\Z', '|', '(', '(?:', '(?=',
+             '(?!', ')')
+    for t in types:
+        if tns.regstr.startswith(t):
+            tns.pos += len(t)
+            return Token(type=t, data=None)
+    else:
+        return None
 
 def _digits(astr, i):
     """Returns the longest digits-only substring starting at (i)."""
@@ -108,64 +148,78 @@ def _digits(astr, i):
     return ''.join(digits)
         
 @tokenfunc
-def paren(restr, i):
+def paren():
     for prefix in '(?:', '(?=', '(?!', '(', ')':
-        if restr.startswith(prefix, i):
+        if tns.regstr.startswith(prefix, i):
             return (prefix, prefix), len(prefix)
     return (None, None)
 
 @tokenfunc
-def char_class(restr, i):
-    if restr[i] != '[':
-        return (None, None)
-    # Find index of closing ']'. Start at i+2 because a beginning ']' does not
-    # indicate the end of the class.
-    for j in range(i+2, len(restr)):
-        ch = restr[j]
-        if ch == ']' and restr[j-1] != '\\':
-            break
-    else:
-        raise ValueError(f'Missing closing "]" for class: "{restr[i:]}"')
-    return ('char-class', _form_class(restr[i+1:j])), j+1-i
+def char_class():
+    """Tries to extract a character class from the regex string. Returns a token
+    of the form Token(type='char-class', data=<chars>), where <chars> is the set
+    of characters in the class."""
+    if current() != '[':
+        return None
+    # Find index of closing ']' and store it in (cbi). Start at tns.pos+2
+    # because a beginning ']' does not indicate the end of the class.
+    cbi = tns.regstr.find(']', tns.pos+2)
+    while True:
+        if cbi == -1:
+            raise ValueError(f'No closing bracket: {rest()}')
+        if tns.regstr[cbi-1] == '\\':
+            cbi = tns.regstr.find(']', cbi+1)
+    template = tns.regstr[tns.pos+1:cbi]
+    tns.pos = cbi + 1
+    return Token('char-class', _form_class(template))
 
-def _form_class(chars):
-    """Assumes (chars) is a non-empty iterator of characters."""
-    chars = iter(chars)
+def _form_class(template):
+    """Processes the insides of a character class (template) into a set of
+    characters."""
+    assert template # (template) should not be empty
+
+    def error(msg):
+        # just a helper
+        raise ValueError(f'Bad character class template "{template}": {msg}')
     
+    tempiter = iter(template)
+        
     # stage 1: take care of initial '^'.
     negate = False
-    first = next(chars)
+    first = next(tempiter)
     if first == '^':
         negate = True
     else: 
-        chars = itertools.chain([first], chars) # put (first) back
+        tempiter = itertools.chain([first], tempiter) # put (first) back
 
-    # stage 2: take care of backlashes. Every token will be a character or a set
-    # of characters or a '--'
     tokens = deque()
-    for char in chars:
+    # stage 2: take care of backlashes. Every element of (tokens) after this
+    # will be a character or a set of characters or a '--'. Tokens in this
+    # context have nothing to do with regex tokens that are the result of
+    # (tokenize).
+    for char in tempiter:
         if char == '-':
             tokens.append('--')
         elif char == '\\':
-            nxt = next(chars, None)
+            nxt = next(tempiter, None)
             if nxt is None:
-                raise ValueError(f'Missing char after backlash: [{chars}]')
+                error('Missing character after backlash.')
             if nxt in CHARSHORTS:
                 tokens.append(CHARSHORTS[nxt])
             elif nxt in ESCAPECHARS:
                 tokens.append(ESCAPECHARS[nxt])
             elif nxt == 'x':
-                h1, h2 = next(chars, None), next(chars, None)
+                h1, h2 = next(tempiter, None), next(tempiter, None)
                 if (h1 is None or h1 not in HEXDIGITS
                     or h2 is None or h2 not in HEXDIGITS):
-                    raise ValueError(f'Expected two hex digits after "\\x": [{chars}]')
+                    error('Expected two hex digits after "\\x"')
                 tokens.append(chr(int(h+h, 16)))
             else:
-                raise ValueError(f'Bad escape: [{chars}]')
+                error(f'Bad char after "\\": "{char}"')
         else:
             tokens.append(char)
 
-    # stage 3;
+    # stage 3: process spans (like 'a-z') and shorthands. 
     result = set()
     while tokens:
         token = tokens.popleft()
@@ -181,64 +235,110 @@ def _form_class(chars):
                 if nxt == '--':
                     span_end = tokens.popleft()
                     if type(span_end) is set:
-                        raise ValueError('Bad character set; set after dash.')
+                        error('Invalid input after "-".')
                     elif span_end == '--':
                         span_end = '-'
                     chars = [chr(k) for k in range(ord(token), ord(span_end)+1)]
                     if not chars:
-                        raise ValueError(f'Bad character set: invalid span '
-                                         f'between "{token}" and "{span_end}"')
+                        error(f'Bad range {token}-{span_end}.')
                     result.update(chars)
                 else:
-                    tokens.appendleft(nxt)
+                    tokens.appendleft(nxt) # put (nxt) back
                     result.add(token)
 
     return result if not negate else ALL-result
 
 @tokenfunc
-def selfeval(restr, i):
-    char, chars = restr[i], '^$|'    
-    return ((char, char), 1) if char in chars else (None, None)
-
-@tokenfunc
-def greedy_quant(restr, i):
-    def error():
-        raise ValueError(f'Invalid quantifier at {i}: "{restr}"')
+def greedy_quant():
+    def error(extra=None):
+        # just a helper
+        msg = f'Invalid quantifier "{rest()}"'
+        if extra is not None:
+            msg = f'{msg}: {extra}'
+        raise ValueError(msg)
     
-    ch = restr[i]
-    if ch == '*':
-        return ('greedy-quant', (0, None)), 1
-    elif ch == '+':
-        return ('greedy-quant', (1, None)), 1
-    elif ch == '?':
-        return ('greedy-quant', (0, 1)), 1
+    ch = current()
+    bounds = {'*': (0, None), '+': (1, None), '?': (0, 1)}.get(ch)
+    if bounds is not None:
+        tns.pos += 1
+        return Token(type='greedy-quant', data=bounds)
     elif ch == '{':
-        j = restr.find('}', i)
-        if j == -1:
-            error()
-        bounds = restr[i+1:j].split(',')
+        endi = tns.regstr.find('}', tns.pos)
+        if endi == -1:
+            error('Missing closing "{".')
+        bounds = tns.regstr[tns.pos+1:endi].split(',')
         if len(bounds) != 2:
-            error()
+            error("One comma required. The format is '{m,n}'")
         try:
-            m, n = map(int, bounds)
+            low, high = map(int, bounds)
         except ValueError:
-            error()
-        if m > n:
-            error()
-        return ('greedy-quant', (m, n)), j+1-i
+            error("Bounds must be parsable to integers.")
+        if low > high:
+            error(f'<low> must not exceed <high>.')
+        tns.pos = endi+1
+        return ('greedy-quant', (low, high))
     else:
-        return (None, None)    
+        return None
+
+@tokenfunc
+def char_class_shorts():
+    """Handles character class shorthands, like r'\d'."""
+    raise NotImplementedError
     
 @tokenfunc
-def char(restr, i):
-    return ('char', restr[i]), 1
-
+def char():
+    """Forms 'char' tokens. Call after other tokenization functions so that
+    special characters are not interpreter as regular ones. For example, if the
+    current position within the regex string is '*', this will interpret it as a
+    character token rather than as a quantifier. As another example, this
+    function will raise an error with r'\A' because 'A' is not a valid escape
+    character, even though r'\A' is a valid regex. So if this is called before
+    the function that processes r'\A' regexes, an error will ensue, which may
+    not be desirable."""
+    
+    ch = current()
+    if ch == '\\':
+        tns.pos += 1
+        if exhausted():
+            raise ValueError('Cannot end in backlash: "{rest()}".')
+        nxt = current()
+        
+    else:
+        tns.pos += 1
+        return Token('char', ch)
+    
 @tokenfunc
-def dot(restr, i):
-    raise NotImplementedError
+def backlash():
+    def error():
+        raise ValueError(f'Bad escape.')
 
-if __name__ == '__main__':
-    assert _form_class('abc') == set('abc')
-    assert _form_class('a-d') == set('abcd')
-    assert _form_class('a-z') == set(string.ascii_lowercase)
-    assert _form_class('0-9') == set(string.digits)
+    if current() != '\\':
+        return None
+    seek(1)
+    if exhausted():
+        raise ValueError(f'Cannot end in backlash: "{tns.regstr}"')
+    char = current()
+    dct = {'A': r'\A', 'b': (r'\b', r'\b'),
+           'B': (r'\B', r'\B'), 'Z': (r'\Z', r'\Z')}    
+    if nxt in dct:
+        return dct[nxt], 2        
+    if nxt in CHARSHORTS:
+        return ('char-class', CHARSHORTS[nxt]), 2
+    if nxt in SPECIAL:
+        return ('char', nxt), 2
+    if nxt.isdigit():
+        digits = _digits(tns.regstr, tns.pos+1)
+        return ('group-index', int(digits)), len(digits)
+    if nxt == 'x':
+        nxt2 = tns.regstr[i+2: i+4]
+        if len(nxt2) < 2 or all(c in HEXDIGITS for c in nxt2):
+            error()
+        return ('char', chr(int(nxt2, 16))), 4
+    if nxt in ESCAPECHARS:
+        return ('char', ESCAPECHARS[nxt]), 2
+    error()
+
+    
+@tokenfunc
+def dot():
+    raise NotImplementedError
