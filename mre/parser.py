@@ -5,7 +5,8 @@ from types import SimpleNamespace
 
 from collections import deque
 
-ALL = frozenset(chr(i) for i in range(128)) # whole ALL character set.
+ALL = frozenset(chr(i) for i in range(128)) # whole character set.
+DOTNOALL = ALL-{'\n'} # dot characters without DOTALL flag.
 DIGIT = frozenset(string.digits)
 ALPHANUMERIC = frozenset(string.ascii_letters + string.digits + '_')
 WHITESPACE = frozenset(string.whitespace)
@@ -76,21 +77,16 @@ tns = SimpleNamespace('regstr'=None, 'pos'=None, flags=None)
 def exhausted():
     return len(tns.regstr) == tns.pos
 
-def current():
-    if exhausted():
-        return None
-    return tns.regstr[tns.pos]
-
-def rest():
-    return tns.regstr[tns.pos:]
-
-# not needed
-def nextch():
+def takech(inc=False):
     if exhausted():
         return None
     ch = tns.regstr[tns.pos]
-    tns.pos += 1
+    if inc:
+        tns.pos += 1
     return ch
+
+def rest():
+    return tns.regstr[tns.pos:]
 
 # not needed
 def seek(i, how='cur'):
@@ -159,7 +155,7 @@ def char_class():
     """Tries to extract a character class from the regex string. Returns a token
     of the form Token(type='char-class', data=<chars>), where <chars> is the set
     of characters in the class."""
-    if current() != '[':
+    if takech() != '[':
         return None
     # Find index of closing ']' and store it in (cbi). Start at tns.pos+2
     # because a beginning ']' does not indicate the end of the class.
@@ -184,7 +180,7 @@ def _form_class(template):
     
     tempiter = iter(template)
         
-    # stage 1: take care of initial '^'.
+    # stage 1: takech care of initial '^'.
     negate = False
     first = next(tempiter)
     if first == '^':
@@ -193,7 +189,7 @@ def _form_class(template):
         tempiter = itertools.chain([first], tempiter) # put (first) back
 
     tokens = deque()
-    # stage 2: take care of backlashes. Every element of (tokens) after this
+    # stage 2: takech care of backlashes. Every element of (tokens) after this
     # will be a character or a set of characters or a '--'. Tokens in this
     # context have nothing to do with regex tokens that are the result of
     # (tokenize).
@@ -213,7 +209,7 @@ def _form_class(template):
                 if (h1 is None or h1 not in HEXDIGITS
                     or h2 is None or h2 not in HEXDIGITS):
                     error('Expected two hex digits after "\\x"')
-                tokens.append(chr(int(h+h, 16)))
+                tokens.append(chr(int(h1+h2, 16)))
             else:
                 error(f'Bad char after "\\": "{char}"')
         else:
@@ -257,7 +253,7 @@ def greedy_quant():
             msg = f'{msg}: {extra}'
         raise ValueError(msg)
     
-    ch = current()
+    ch = takech()
     bounds = {'*': (0, None), '+': (1, None), '?': (0, 1)}.get(ch)
     if bounds is not None:
         tns.pos += 1
@@ -284,61 +280,42 @@ def greedy_quant():
 def char_class_shorts():
     """Handles character class shorthands, like r'\d'."""
     raise NotImplementedError
-    
+
+@tokenfunc
+def backref():
+    raise NotImplementedError
+
 @tokenfunc
 def char():
     """Forms 'char' tokens. Call after other tokenization functions so that
     special characters are not interpreter as regular ones. For example, if the
-    current position within the regex string is '*', this will interpret it as a
+    current char of the regex string is '*', this will interpret it as a
     character token rather than as a quantifier. As another example, this
     function will raise an error with r'\A' because 'A' is not a valid escape
     character, even though r'\A' is a valid regex. So if this is called before
     the function that processes r'\A' regexes, an error will ensue, which may
     not be desirable."""
+
+    def error(msg):
+        raise ValueError(f'{msg}: "{tns.regstr}".')
     
-    ch = current()
+    ch = takech(inc=True)
     if ch == '\\':
-        tns.pos += 1
-        if exhausted():
-            raise ValueError('Cannot end in backlash: "{rest()}".')
-        nxt = current()
-        
+        nxt = takech(inc=True)
+        if nxt is None:
+            error('Cannot end in backlash.')
+        elif nxt in SPECIAL:
+            return Token('char', SPECIAL)
+        elif nxt == 'x':
+            x1, x2 = takech(inc=True), takech(inc=True)
+            if (x1 is None or x1 not in HEXDIGITS
+                or x2 is None or x2 not in HEXDIGITS):
+                error('Expected two hex digits after "\x"')
+            return Token('char', chr(int(x1+x2, 16)))
+        elif nxt in ESCAPECHARS:
+            return Token('char', ESCAPECHARS[nxt])
+        else:
+            error(f'"{nxt}" is not a valid escape character, at {tns.pos}.')
     else:
         tns.pos += 1
         return Token('char', ch)
-    
-@tokenfunc
-def backlash():
-    def error():
-        raise ValueError(f'Bad escape.')
-
-    if current() != '\\':
-        return None
-    seek(1)
-    if exhausted():
-        raise ValueError(f'Cannot end in backlash: "{tns.regstr}"')
-    char = current()
-    dct = {'A': r'\A', 'b': (r'\b', r'\b'),
-           'B': (r'\B', r'\B'), 'Z': (r'\Z', r'\Z')}    
-    if nxt in dct:
-        return dct[nxt], 2        
-    if nxt in CHARSHORTS:
-        return ('char-class', CHARSHORTS[nxt]), 2
-    if nxt in SPECIAL:
-        return ('char', nxt), 2
-    if nxt.isdigit():
-        digits = _digits(tns.regstr, tns.pos+1)
-        return ('group-index', int(digits)), len(digits)
-    if nxt == 'x':
-        nxt2 = tns.regstr[i+2: i+4]
-        if len(nxt2) < 2 or all(c in HEXDIGITS for c in nxt2):
-            error()
-        return ('char', chr(int(nxt2, 16))), 4
-    if nxt in ESCAPECHARS:
-        return ('char', ESCAPECHARS[nxt]), 2
-    error()
-
-    
-@tokenfunc
-def dot():
-    raise NotImplementedError
