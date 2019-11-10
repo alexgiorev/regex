@@ -88,6 +88,11 @@ def takech(inc=False):
 def rest():
     return tns.regstr[tns.pos:]
 
+def stream():
+    while not exhausted():
+        yield tns.regstr[tns.pos]
+        tns.pos += 1
+
 # not needed
 def seek(i, how='cur'):
     if how == 'cur':
@@ -100,7 +105,7 @@ def seek(i, how='cur'):
 
 def token_error(msg):
     # just a helper
-    raise ValueError(f'{msg}: "{tns.regstr}".')
+    raise ValueError(f'{msg}: "{tns.regstr}"')
     
 def tokenfunc(func):
     tokenfuncs.append(func)
@@ -283,13 +288,13 @@ def greedy_quant():
 @tokenfunc
 def char_class_shorts():
     """Handles character class shorthands, like r'\d'."""
-    ch = take(True)
+    ch = takech(True)
     chars = None # the set of characters
     if ch == '.':
         chars = (ALL if common.contains_flag(tns.flags, common.DOTALL)
                  else DOTNOALL)
     elif ch == '\\':
-        nxt = take(True)
+        nxt = takech(True)
         if nxt is None:
             token_error(f"Can't end in backlash.")
         chars = CLASS_SHORTS.get(nxt)
@@ -303,8 +308,35 @@ def char_class_shorts():
             
 @tokenfunc
 def backref():
-    raise NotImplementedError
+    ch = takech()
+    if ch != '\\':
+        return None
+    tns.pos += 1
+    nxt = takech()
+    if nxt is None:
+        token_error(f"Can't end in backlash.")
+    if nxt.isdigit():
+        return Token('bref', int(extract_digits()))
+    else:
+        tns.pos -= 1 # put back (ch)
+        return None
 
+def extract_digits():
+    """Helper function. Assumes the current regex string char is a
+    digit. Extracts all digits from the current position, and returns
+    them. Increments (tns.pos) in the process, so that it will point to the
+    first non-digit char."""
+    digits = []
+    while True:
+        digits.append(ch)
+        tns.pos += 1
+        if exhausted():
+            break
+        ch = takech()
+        if not ch.isdigit():
+            break
+    return ''.join(digits)
+    
 @tokenfunc
 def char():
     """Forms 'char' tokens. Call after other tokenization functions so that
