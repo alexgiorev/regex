@@ -291,13 +291,16 @@ def char_class_shorts():
     elif ch == '\\':
         nxt = take(True)
         if nxt is None:
-            raise ValueError(f'Can\'t end in backlash: "{tns.regstr}".')
+            token_error(f"Can't end in backlash.")
         chars = CLASS_SHORTS.get(nxt)
-        if nxt in CLASS_SHORTS:
+        if chars is None:
+            tns.pos -= 2 # put (ch) and (nxt).
+            return None
+    else:
+        tns.pos -= 1 # put back (ch)
+        return None
+    return Token('char-class', chars)
             
-            
-            
-
 @tokenfunc
 def backref():
     raise NotImplementedError
