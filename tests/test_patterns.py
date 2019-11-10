@@ -3,9 +3,9 @@ import random
 import string
 import functools
 
-from .. import common
+from mre import common
 
-from ..patterns import *
+from mre.patterns import *
 
 # ----------------------------------------
 # utils
