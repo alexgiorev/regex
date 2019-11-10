@@ -98,6 +98,10 @@ def seek(i, how='cur'):
     else:
         raise ValueError(f'Bad how: "{how}"')
 
+def token_error(msg):
+    # just a helper
+    raise ValueError(f'{msg}: "{tns.regstr}".')
+    
 def tokenfunc(func):
     tokenfuncs.append(func)
     return func
@@ -286,7 +290,11 @@ def char_class_shorts():
                  else DOTNOALL)
     elif ch == '\\':
         nxt = take(True)
+        if nxt is None:
+            raise ValueError(f'Can\'t end in backlash: "{tns.regstr}".')
+        chars = CLASS_SHORTS.get(nxt)
         if nxt in CLASS_SHORTS:
+            
             
             
 
@@ -305,26 +313,23 @@ def char():
     the function that processes r'\A' regexes, an error will ensue, which may
     not be desirable."""
 
-    def error(msg):
-        raise ValueError(f'{msg}: "{tns.regstr}".')
-    
     ch = takech(True)
     if ch == '\\':
         nxt = takech(True)
         if nxt is None:
-            error('Cannot end in backlash.')
+            token_error('Cannot end in backlash.')
         elif nxt in SPECIAL:
             return Token('char', SPECIAL)
         elif nxt == 'x':
             x1, x2 = takech(True), takech(True)
             if (x1 is None or x1 not in HEX_DIGITS
                 or x2 is None or x2 not in HEX_DIGITS):
-                error('Expected two hex digits after "\x"')
+                token_error('Expected two hex digits after "\x"')
             return Token('char', chr(int(x1+x2, 16)))
         elif nxt in ESCAPE_CHARS:
             return Token('char', ESCAPE_CHARS[nxt])
         else:
-            error(f'"{nxt}" is not a valid escape character, at {tns.pos}.')
+            token_error(f'"{nxt}" is not a valid escape character, at {tns.pos}.')
     else:
         tns.pos += 1
         return Token('char', ch)
