@@ -189,7 +189,7 @@ def _form_class(template):
     
     tempiter = iter(template)
         
-    # stage 1: takech care of initial '^'.
+    # stage 1: take care of initial '^'.
     negate = False
     first = next(tempiter)
     if first == '^':
@@ -198,7 +198,7 @@ def _form_class(template):
         tempiter = itertools.chain([first], tempiter) # put (first) back
 
     tokens = deque()
-    # stage 2: takech care of backlashes. Every element of (tokens) after this
+    # stage 2: take care of backlashes. Every element of (tokens) after this
     # will be a character or a set of characters or a '--'. Tokens in this
     # context have nothing to do with regex tokens that are the result of
     # (tokenize).
