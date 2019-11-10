@@ -6,20 +6,20 @@ from types import SimpleNamespace
 from collections import deque
 
 ALL = frozenset(chr(i) for i in range(128)) # whole character set.
-DOTNOALL = ALL-{'\n'} # dot characters without DOTALL flag.
+DOT_NO_ALL = ALL-{'\n'} # dot characters without DOTALL flag.
 DIGIT = frozenset(string.digits)
 ALPHANUMERIC = frozenset(string.ascii_letters + string.digits + '_')
 WHITESPACE = frozenset(string.whitespace)
 # shorthands for character classes
-CHARSHORTS = {'d': DIGIT,
-              'D': ALL - DIGIT,
-              's': WHITESPACE,
-              'S': ALL - WHITESPACE,
-              'w': ALPHANUMERIC,
-              'W': ALL - ALPHANUMERIC}
+CLASS_SHORTS = {'d': DIGIT,
+                'D': ALL - DIGIT,
+                's': WHITESPACE,
+                'S': ALL - WHITESPACE,
+                'w': ALPHANUMERIC,
+                'W': ALL - ALPHANUMERIC}
 SPECIAL = r'\[].^()|+*?{}'
-HEXDIGITS = f'0123456789abcdefABCDEF'
-ESCAPECHARS = {'a': '\a', 'f': '\f', 'n': '\n', 'r': '\r',
+HEX_DIGITS = f'0123456789abcdefABCDEF'
+ESCAPE_CHARS = {'a': '\a', 'f': '\f', 'n': '\n', 'r': '\r',
                't': '\t', 'v': '\v', 'b': '\b'}
 
 # ----------------------------------------
@@ -200,14 +200,14 @@ def _form_class(template):
             nxt = next(tempiter, None)
             if nxt is None:
                 error('Missing character after backlash.')
-            if nxt in CHARSHORTS:
-                tokens.append(CHARSHORTS[nxt])
-            elif nxt in ESCAPECHARS:
-                tokens.append(ESCAPECHARS[nxt])
+            if nxt in CLASS_SHORTS:
+                tokens.append(CLASS_SHORTS[nxt])
+            elif nxt in ESCAPE_CHARS:
+                tokens.append(ESCAPE_CHARS[nxt])
             elif nxt == 'x':
                 h1, h2 = next(tempiter, None), next(tempiter, None)
-                if (h1 is None or h1 not in HEXDIGITS
-                    or h2 is None or h2 not in HEXDIGITS):
+                if (h1 is None or h1 not in HEX_DIGITS
+                    or h2 is None or h2 not in HEX_DIGITS):
                     error('Expected two hex digits after "\\x"')
                 tokens.append(chr(int(h1+h2, 16)))
             else:
@@ -279,7 +279,16 @@ def greedy_quant():
 @tokenfunc
 def char_class_shorts():
     """Handles character class shorthands, like r'\d'."""
-    raise NotImplementedError
+    ch = take(True)
+    chars = None # the set of characters
+    if ch == '.':
+        chars = (ALL if common.contains_flag(tns.flags, common.DOTALL)
+                 else DOTNOALL)
+    elif ch == '\\':
+        nxt = take(True)
+        if nxt in CLASS_SHORTS:
+            
+            
 
 @tokenfunc
 def backref():
@@ -299,21 +308,21 @@ def char():
     def error(msg):
         raise ValueError(f'{msg}: "{tns.regstr}".')
     
-    ch = takech(inc=True)
+    ch = takech(True)
     if ch == '\\':
-        nxt = takech(inc=True)
+        nxt = takech(True)
         if nxt is None:
             error('Cannot end in backlash.')
         elif nxt in SPECIAL:
             return Token('char', SPECIAL)
         elif nxt == 'x':
-            x1, x2 = takech(inc=True), takech(inc=True)
-            if (x1 is None or x1 not in HEXDIGITS
-                or x2 is None or x2 not in HEXDIGITS):
+            x1, x2 = takech(True), takech(True)
+            if (x1 is None or x1 not in HEX_DIGITS
+                or x2 is None or x2 not in HEX_DIGITS):
                 error('Expected two hex digits after "\x"')
             return Token('char', chr(int(x1+x2, 16)))
-        elif nxt in ESCAPECHARS:
-            return Token('char', ESCAPECHARS[nxt])
+        elif nxt in ESCAPE_CHARS:
+            return Token('char', ESCAPE_CHARS[nxt])
         else:
             error(f'"{nxt}" is not a valid escape character, at {tns.pos}.')
     else:
