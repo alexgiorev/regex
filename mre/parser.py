@@ -116,26 +116,20 @@ def tokenize(regstr, flags):
 @tokenfunc
 def simple():
     """For tokens whose type matches the characters in the regex string, and
-    whose data is None."""    
-    types = ('^', '$', r'\A', r'\b', r'\B', r'\Z', '|', '(', '(?:', '(?=',
-             '(?!', ')')
+    whose data is None."""
+    # In the tuple below, make sure that if (t1) is a prefix of (t2), (t1) comes
+    # after (t2). Consider an example which violates this and the consequence:
+    # If '(' comes before '(?=', if '(?=' is a prefix of the regex string at
+    # (tns.pos), the token that will be extracted is '(', not '(?=' as should be
+    # the case.
+    types = ('^', '$', r'\A', r'\b', r'\B', r'\Z', '|',
+             '(?:', '(?=','(?!', '(', ')')
     for t in types:
-        if tns.regstr.startswith(t):
+        if tns.regstr.startswith(t, tns.pos):
             tns.pos += len(t)
             return Token(type=t, data=None)
     else:
         return None
-
-def _digits(astr, i):
-    """Returns the longest digits-only substring starting at (i)."""
-    digits = [astr[i]]
-    for i in range(i+1, len(astr)):
-        ch = astr[i]
-        if ch.isdigit():
-            digits.append(ch)
-        else:
-            break
-    return ''.join(digits)
         
 @tokenfunc
 def char_class():
