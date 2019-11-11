@@ -1,9 +1,9 @@
 import itertools
 import string
-from collections import namedtuple
+from collections import namedtuple, deque
 from types import SimpleNamespace
 
-from collections import deque
+from . import common
 
 ALL = frozenset(chr(i) for i in range(128)) # whole character set.
 DOT_NO_ALL = ALL-{'\n'} # dot characters without DOTALL flag.
@@ -72,7 +72,7 @@ How regex parts map to tokens:
 tokenfuncs = []
 
 # tns = tokenization name space
-tns = SimpleNamespace('regstr'=None, 'pos'=None, flags=None)
+tns = SimpleNamespace(regstr=None, pos=None, flags=None)
 
 def exhausted():
     return len(tns.regstr) == tns.pos
@@ -153,13 +153,6 @@ def _digits(astr, i):
     return ''.join(digits)
         
 @tokenfunc
-def paren():
-    for prefix in '(?:', '(?=', '(?!', '(', ')':
-        if tns.regstr.startswith(prefix, i):
-            return (prefix, prefix), len(prefix)
-    return (None, None)
-
-@tokenfunc
 def char_class():
     """Tries to extract a character class from the regex string. Returns a token
     of the form Token(type='char-class', data=<chars>), where <chars> is the set
@@ -174,6 +167,8 @@ def char_class():
             raise ValueError(f'No closing bracket: {rest()}')
         if tns.regstr[cbi-1] == '\\':
             cbi = tns.regstr.find(']', cbi+1)
+        else:
+            break
     template = tns.regstr[tns.pos+1:cbi]
     tns.pos = cbi + 1
     return Token('char-class', _form_class(template))
@@ -359,7 +354,7 @@ def char():
             x1, x2 = takech(True), takech(True)
             if (x1 is None or x1 not in HEX_DIGITS
                 or x2 is None or x2 not in HEX_DIGITS):
-                token_error('Expected two hex digits after "\x"')
+                token_error('Expected two hex digits after "\\x"')
             return Token('char', chr(int(x1+x2, 16)))
         elif nxt in ESCAPE_CHARS:
             return Token('char', ESCAPE_CHARS[nxt])
