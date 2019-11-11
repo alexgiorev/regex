@@ -5,7 +5,7 @@ from types import SimpleNamespace
 
 from . import common
 
-ALL = frozenset(chr(i) for i in range(128)) # whole character set.
+ALL = frozenset(chr(i) for i in range(256)) # whole character set.
 DOT_NO_ALL = ALL-{'\n'} # dot characters without DOTALL flag.
 DIGIT = frozenset(string.digits)
 ALPHANUMERIC = frozenset(string.ascii_letters + string.digits + '_')
@@ -225,8 +225,8 @@ def _form_class(template):
         token = tokens.popleft()
         if token == '--':
             result.add('-')
-        elif type(token) is set:
-            result.update(set)
+        elif type(token) in (set, frozenset):
+            result.update(token)
         else: # (token) is a character            
             if len(tokens) < 2: # (token) is not part of a span
                 result.add(token)
