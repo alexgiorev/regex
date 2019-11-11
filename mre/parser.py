@@ -88,11 +88,6 @@ def takech(inc=False):
 def rest():
     return tns.regstr[tns.pos:]
 
-def stream():
-    while not exhausted():
-        yield tns.regstr[tns.pos]
-        tns.pos += 1
-
 def token_error(msg):
     # just a helper
     raise ValueError(f'{msg}: "{tns.regstr}"')
