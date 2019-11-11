@@ -28,9 +28,9 @@ ESCAPE_CHARS = {'a': '\a', 'f': '\f', 'n': '\n', 'r': '\r',
 Token = namedtuple('Token', 'type data')
 
 """
-For some tokens, due to a lack of imagination, the type and lexeme match. For
-example, for the token '(?:', the type is also written as '(?:' so that the
-whole token is ('(?:', '(?:')
+Tokenization here is not a strictly syntactical operation. It also does some
+preliminary processing (like determining the characters in a character set, the
+bounds of a greedy quantifier and more.
 
 The possible tokens are:
 - characters: (type='char', data=<char>). For example, ('char', 'A'), ('char',
@@ -183,7 +183,9 @@ def _form_class(template):
             nxt = next(tempiter, None)
             if nxt is None:
                 error('Missing character after backlash.')
-            if nxt in CLASS_SHORTS:
+            elif nxt == '-':
+                tokens.append('-')
+            elif nxt in CLASS_SHORTS:
                 tokens.append(CLASS_SHORTS[nxt])
             elif nxt in ESCAPE_CHARS:
                 tokens.append(ESCAPE_CHARS[nxt])
@@ -255,7 +257,7 @@ def greedy_quant():
         if low > high:
             error(f'<low> must not exceed <high>.')
         tns.pos = endi+1
-        return ('greedy-quant', (low, high))
+        return Token('greedy-quant', (low, high))
     else:
         return None
 
