@@ -93,16 +93,6 @@ def stream():
         yield tns.regstr[tns.pos]
         tns.pos += 1
 
-# not needed
-def seek(i, how='cur'):
-    if how == 'cur':
-        tns.pos = max(0, min(len(tns.regstr), tns.pos + i))
-        return tns.pos
-    elif how == 'set':
-        tns.pos = max(0, min(len(tns.regstr), i))
-    else:
-        raise ValueError(f'Bad how: "{how}"')
-
 def token_error(msg):
     # just a helper
     raise ValueError(f'{msg}: "{tns.regstr}"')
