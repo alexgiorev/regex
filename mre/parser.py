@@ -32,6 +32,16 @@ Tokenization here is not a strictly syntactical operation. It also does some
 preliminary processing (like determining the characters in a character set, the
 bounds of a greedy quantifier and more.
 
+The character set used is {chr(i) for i in range(256)}, so all characters whose
+encoding can fit in a byte. The idea is to support all ascii characters. I chose
+this set for simplicity; the purpose of this project is to practice, nobody will
+really it.
+
+Document:
+- charset
+- backlash
+- char class template semantics
+
 The possible tokens are:
 - characters: (type='char', data=<char>). For example, ('char', 'A'), ('char',
   '\n')
@@ -135,7 +145,45 @@ def simple():
 def char_class():
     """Tries to extract a character class from the regex string. Returns a token
     of the form Token(type='char-class', data=<chars>), where <chars> is the set
-    of characters in the class."""
+    of characters in the class.
+
+    Character class syntax: A template is what appears inside the brackets enclosing
+    the class (e.g. 'a-z' in [a-z]). I will describe the fine points related to how
+    a template maps to the character set that makes up the class. All of the rest is
+    the same as in Python.
+
+    There are a couple of points to consider:
+
+    1. Caret in the beginning
+
+    If the template begins with '^', the char set will be the negation of that
+    determined by the rest of the template. As a special case, a template of '^'
+    raises an error, because '' is not a valid template. For the rest of this
+    docstring, assume the template does not begin with '^'.
+
+    2. Hyphens
+
+    Hyphens have two purposes:
+    - They stand for themselves. This happens in the following cases:
+      - When they appear at the beginning or end of the template. As a special
+        case, '[^-]' is the set of all chars except '-'
+      - When they are preceded by an unescaped backlash.
+      - When they can't possibly stand for a range. For example, in '0-5-9',
+        '0-5' is a range, but the hyphen that follows can't be one, because it
+        makes no sense to have a range whose lower bound is another range. So
+        the second hyphen stands for itself to result in the charset
+        set('012345-9').
+    - They delimit ranges.
+
+    3. Character class shorthands, like r'\d', r'\w', etc. If a letter which
+       stands for a char-class shorthand is preceded by an unescaped backlash,
+       the resulting class will contain the characters of the inner class.
+
+    4. backlashes. Normal escape characters can be included. Also, the
+       characters special to char classes - r'\[]^-' - can be included by
+       backlashing them.
+    """
+    
     if takech() != '[':
         return None
     # Find index of closing ']' and store it in (cbi). Start at tns.pos+2
@@ -208,7 +256,7 @@ def _form_class(template):
             result.add('-')
         elif type(token) in (set, frozenset):
             result.update(token)
-        else: # (token) is a character            
+        else: # (token) is a character
             if len(tokens) < 2: # (token) is not part of a span
                 result.add(token)
             else:
