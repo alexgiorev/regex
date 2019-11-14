@@ -4,42 +4,45 @@ import random
 
 from mre.parser import *
 
-def token(regstr, flags=common.emptyflags()):
-    # Just a helper
-    return tokenize(regstr, flags)[0]
+class TestTokenizer(unittest.TestCase):
+    @staticmethod
+    def noflags(regstr):
+        # Just a helper
+        return tokenize(regstr, common.emptyflags())
 
-def toknoflags(regstr):
-    return tokenize(regstr, common.emptyflags())
-
-class Test(unittest.TestCase):
+    @staticmethod
+    def single(regstr, flags=common.emptyflags()):
+        # Just a helper
+        return tokenize(regstr, flags)[0]
+    
     def test_char_class(self):
-        cc = token('[abc]')
+        cc = self.single('[abc]')
         self.assertEqual(cc.data, set('abc'))
 
-        cc = token('[a-d]')
+        cc = self.single('[a-d]')
         self.assertEqual(cc.data, set('abcd'))
 
-        cc = token('[a-zA-Z0-9]')
+        cc = self.single('[a-zA-Z0-9]')
         self.assertEqual(cc.data, set(string.ascii_letters + string.digits))
         
-        cc = token(r'[\x00-\xff]')
+        cc = self.single(r'[\x00-\xff]')
         self.assertEqual(cc.data, ALL)
 
-        cc = token(r'[\d\d]')
+        cc = self.single(r'[\d\d]')
         self.assertEqual(cc.data, set(string.digits))
 
-        cc = token(r'[\w\d_-]')
+        cc = self.single(r'[\w\d_-]')
         self.assertEqual(cc.data, set(string.digits + string.ascii_letters + '_-'))
 
         # ']' directly after '[' should not end the class.
-        cc = token(r'[]abc]')
+        cc = self.single(r'[]abc]')
         self.assertEqual(cc.data, set(']abc'))
 
-        cc = token(r'[^\da-g]')
+        cc = self.single(r'[^\da-g]')
         self.assertEqual(cc.data, ALL - (DIGIT | set('abcdefg')))
 
         # some oddness
-        cc1, cc2, cc3, cc4, cc5 = toknoflags(r'[^-][-][a-c-][*--a][0-5-9]')
+        cc1, cc2, cc3, cc4, cc5 = self.noflags(r'[^-][-][a-c-][*--a][0-5-9]')
         self.assertEqual(cc1.data, ALL - set('-'))
         self.assertEqual(cc2.data, set('-'))
         self.assertEqual(cc3.data, set('abc-'))
@@ -51,11 +54,11 @@ class Test(unittest.TestCase):
                  '(?=','(?!', ')']
         random.shuffle(types) # order shouldn't matter.
         together = ''.join(types)
-        result_types = [token.type for token in toknoflags(together)]
+        result_types = [token.type for token in self.noflags(together)]
         self.assertEqual(types, result_types)
 
     def test_greedy_quant(self):
-        tokens = toknoflags('+?*{10,20}')
+        tokens = self.noflags('+?*{10,20}')
         expected_bounds = [(1, None), (0, 1), (0, None), (10, 20)]
         for token, eb in zip(tokens, expected_bounds):
             self.assertEqual(token.type, 'greedy-quant')
