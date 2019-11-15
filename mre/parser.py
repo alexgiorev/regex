@@ -1,9 +1,164 @@
 import itertools
 import string
 from collections import namedtuple, deque
-from types import SimpleNamespace
+from types import SimpleNamespace as NS
+
+import patterns
 
 from . import common
+from .positional_list import PositionalList as poslist
+
+
+# ----------------------------------------
+# Compilation
+
+class TokenList:
+    def __init__(self, base, start=0, end=None):
+        self.base = base
+        self.start = start
+        self.end = len(base) - 1 if end is None else end
+        self.current = start
+
+    def __next__(self):
+        if self.current > self.end:
+            return
+        yield self.base[self.current]
+        self.current += 1
+
+    def __getitem__(self, index):
+        i = self.start + index
+        if i > end:
+            raise IndexError
+        return self.base[i]
+
+    @property
+    def subtokens(self):
+        """A paren token was just encountered. This returns a TokenList
+        containing all tokens within opening paren that was just passed and it's
+        corresponding closing."""
+        start = self.current
+        parsum = 1
+        for token in self:
+            if token.type.startswith('('):
+                parsum += 1
+            elif token.type == ')':
+                parsum -= 1
+                if parsum == 0:
+                    break
+        else:
+            raise ValueError(f'Missing closing parenthesis.')
+        return TokenList(self.base, start, self.end-1)
+    
+    def __iter__(self):
+        return self
+
+OpInfo = namedtuple('OpInfo', 'assoc prec')
+TokenTree = namedtuple('TokenTree', 'children uplist bplist paren')
+
+unops = [
+    {'assoc': 'left', 'ops': {'greedy-quant'}},
+]
+
+binops = [
+    {'assoc': 'left', 'ops': {'|', 'X'}},
+]
+
+def isprimitive(token):
+    raise NotImplementedError
+
+def isoperator(token):
+    raise NotImplementedError
+
+# global compilation namespace.
+cns = NS(context=None)
+
+def compile(regstr, flags):
+    """Raises ValueError."""
+    cns.context = common.Context(0, flags)
+    tokens = TokenList(tokenize(regstr, flags))
+    return _compile(tokens, None)
+
+def _compile(tokens, grpi):
+    """Compiles (tokens) to a pattern with group index (grpi)."""
+    
+    def first_pass():
+        """The token sequence is transformed into a sequence of patterns and
+        operators. During this tokens pass, we remember the positions of unary
+        and binary operators. As a side effect, the context will be completly
+        determined."""
+
+        for token in tokens:
+            if isprimitive(token):
+                pattern = _compile_primitive(token)
+                raise NotImplementedError
+            elif isoperator(token):
+                raise NotImplementedError
+            else: # is a parenthesis
+                subtokens = tokens.subtokens
+                paren = token.type
+                if paren == '(':
+                    cns.context.numgrps += 1
+                    pattern = _compile(subtokens, grpi)
+                    # insert into global list
+                    raise NotImplementedError
+                elif paren == '(?:':
+                    pattern = _compile(subtokens, None)
+                    # insert into global list
+                    raise NotImplementedError
+                elif paren in ('(?=', '(?!'):
+                    subpattern = _compile(subtokens, None)
+                    positive = (paren == '(?=')
+                    pattern = (patterns.ZeroWidth.
+                               lookahead(subpattern, positive, None, cns.context))
+                    raise NotImplementedError
+                else:
+                    assert paren == ')'
+                    raise ValueError(f'Unneccessary closing parenthesis.')
+
+            return opsargs, unops, binops
+
+    @todo
+    def process_unary_operators(opsargs, unops):
+        """Assumes (opsargs) contains only patterns and operator tokens. Some
+        of those operators will be unary. This phase processes them out, so that
+        what is left will be an alternating sequence of patterns and binary
+        operators. To achieve this, (unops) is used. It must be a sequence of
+        (assoc, posns) pairs. (assoc) is either 'left' or 'right', while (posns)
+        is a list of positions within (ops_patterns). Each position in (posns)
+        must contain a unary operator."""
+        
+        for assoc, unop_posns in unops:
+            if assoc is 'right':
+                unop_posns = reversed(unop_posns)
+            for unop_pos in unop_posns:
+                arg_pos = (opsargs.before(unop_pos)
+                           if assoc is 'left'
+                           else opsargs.after(unop_pos))
+                if (arg_pos is None or
+                    not isinstance(arg_pos.element, patterns.Pattern)):
+                    raise ValueError(f'Missing unary operator argument.')
+                # combine
+                pattern = raise NotImplementedError
+                arg_pos.element = pattern
+                opsargs.delete(unop_pos)
+                
+        raise NotImplementedError
+    
+    def process_binary_operators(opsargs, binops):
+        raise NotImplementedError
+
+    opsargs, unops, binops = first_pass()
+    process_unary_operators(opsargs, unops)
+    return process_binary_operators(opsargs, binops)
+
+def _compile_primitive(token):
+    raise NotImplementedError
+            
+def _compile_binops(mainseq, binops):
+    raise NotImplementedError
+
+# ----------------------------------------
+# Tokenization
 
 ALL = frozenset(chr(i) for i in range(256)) # whole character set.
 DOT_NO_ALL = ALL-{'\n'} # dot characters without DOTALL flag.
@@ -21,9 +176,6 @@ SPECIAL = r'\[].^()|+*?{}'
 HEX_DIGITS = f'0123456789abcdefABCDEF'
 ESCAPE_CHARS = {'a': '\a', 'f': '\f', 'n': '\n', 'r': '\r',
                't': '\t', 'v': '\v', 'b': '\b'}
-
-# ----------------------------------------
-# Tokenization
 
 Token = namedtuple('Token', 'type data')
 
@@ -82,7 +234,7 @@ How regex parts map to tokens:
 tokenfuncs = []
 
 # tns = tokenization name space
-tns = SimpleNamespace(regstr=None, pos=None, flags=None)
+tns = NS(regstr=None, pos=None, flags=None)
 
 def exhausted():
     return len(tns.regstr) == tns.pos
@@ -311,7 +463,8 @@ def greedy_quant():
 
 @tokenfunc
 def char_class_shorts():
-    """Handles character class shorthands, like r'\d'."""
+    """Handles character class shorthands, like r'\d'. The dot is also
+    considered such as shorthand."""
     ch = takech(True)
     chars = None # the set of characters
     if ch == '.':

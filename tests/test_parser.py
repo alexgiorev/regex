@@ -58,11 +58,20 @@ class TestTokenizer(unittest.TestCase):
         self.assertEqual(types, result_types)
 
     def test_greedy_quant(self):
+        quants = ['+', '?', '*', '{10,20}']
         tokens = self.noflags('+?*{10,20}')
         expected_bounds = [(1, None), (0, 1), (0, None), (10, 20)]
         for token, eb in zip(tokens, expected_bounds):
             self.assertEqual(token.type, 'greedy-quant')
             self.assertEqual(token.data, eb)
+
+        expected_bounds = set(expected_bounds) # order no longer matters
+        for k in range(24):
+            random.shuffle(quants)
+            tokens = self.noflags(''.join(quants))
+            self.assertEqual(set(tokens), expected_bounds)
+            
+        
 
 def main():
     unittest.main(__name__)
