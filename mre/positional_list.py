@@ -112,11 +112,11 @@ class PositionalList(_DoublyLinkedBase):
     node = super()._insert_between(e, predecessor, successor)
     return self._make_position(node)
 
-  def add_first(self, e):
+  def appendleft(self, e):
     """Insert element e at the front of the list and return new Position."""
     return self._insert_between(e, self._header, self._header._next)
 
-  def add_last(self, e):
+  def append(self, e):
     """Insert element e at the back of the list and return new Position."""
     return self._insert_between(e, self._trailer._prev, self._trailer)
 
@@ -130,7 +130,7 @@ class PositionalList(_DoublyLinkedBase):
     original = self._validate(p)
     return self._insert_between(e, original, original._next)
 
-  def delete(self, p):
+  def pop(self, p):
     """Remove and return the element at Position p."""
     original = self._validate(p)
     return self._delete_node(original)  # inherited method returns element
