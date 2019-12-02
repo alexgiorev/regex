@@ -6,13 +6,71 @@ from types import SimpleNamespace as NS
 import patterns
 
 from . import common
-from .positional_list import PositionalList as poslist
+from .llist import dllist
 
 
 # ----------------------------------------
-# Compilation
+# Parsing
 
-class TokenList:
+Token = namedtuple('Token', 'type data')
+ExprTree = namedtuple('ExprTree', 'token args grpis')
+
+# A set of the token types which correspond to unary operators. There is no need
+# to keep track of precedence or associativity, because only postfix unary
+# operators are used, and all unary operators have greater precedence than all
+# binary operators.
+unops = {'greedy-quant'}
+
+def isunop(token):
+    return token.type in unops
+
+# Order operators based on precedence. Each element of the list contains an
+# associativity and a set of operators which have that associativity. All
+# operators in a (binops) element have the same precedence, which is less than
+# that of previous elements' operators, and greater than that of next elements'
+# operators. In other words, operators in descending precedence order.
+binops = [
+    NS(assoc='left', ops={'product'}),
+    NS(assoc='left', ops={'|'})
+]
+
+# What follows is a script which transforms (binops) into a dict which maps to a
+# binary operator it's precedence and associativity. The current version of
+# (binops) is easy for humans to manipulate, the new version will be easy for
+# programs to query.
+
+new_binops = {}
+for binfo, prec in zip(binops, range(len(binops), 0, -1)):
+    assoc, ops = binfo.assoc, binfo.ops
+    for op in ops:
+        new_binops[op] = NS(assoc=assoc, prec=prec)
+binops = new_binops
+
+def isbinop(token):
+    return token.type in binops
+
+def binfo(token):
+    return binops[token.type]
+
+def token_category(token):
+    """Tokens can be grouped into 3 categories:
+    - primitives: letters, zero-width assertions, etc.
+    - operators.
+    - parenthesis.
+    This functions returns one of ('primitive', 'operator', 'parenthesis')
+    """
+    
+    t = token.type
+    if t.startswith('(') or t.endswith(')'):
+        return 'parenthesis'
+    elif t in unops or t in binops:
+        return 'operator'
+    else:
+        return 'primitive'
+
+class _TokenList:
+    """Used to efficiently iterate over the tokens."""
+    
     def __init__(self, base, start=0, end=None):
         self.base = base
         self.start = start
@@ -21,22 +79,18 @@ class TokenList:
 
     def __next__(self):
         if self.current > self.end:
-            return
-        yield self.base[self.current]
+            raise StopIteration
+        result = self.base[self.current]
         self.current += 1
+        return result
 
-    def __getitem__(self, index):
-        i = self.start + index
-        if i > end:
-            raise IndexError
-        return self.base[i]
-
-    @property
     def subtokens(self):
         """A paren token was just encountered. This returns a TokenList
         containing all tokens within opening paren that was just passed and it's
-        corresponding closing."""
-        start = self.current
+        corresponding closing. After this call, (self)'s index will be on the
+        token following the closing parenthesis."""
+        
+        start = self.current # the index of the token after the opening paren
         parsum = 1
         for token in self:
             if token.type.startswith('('):
@@ -47,115 +101,159 @@ class TokenList:
                     break
         else:
             raise ValueError(f'Missing closing parenthesis.')
-        return TokenList(self.base, start, self.end-1)
+
+        # at this point, (self.current-1) is the index of the closing paren, so
+        # we want the tokens from (start) to (self.current-2)
+        return _TokenList(self.base, start, self.current-2)
     
     def __iter__(self):
         return self
 
-OpInfo = namedtuple('OpInfo', 'assoc prec')
-TokenTree = namedtuple('TokenTree', 'children uplist bplist paren')
+# global parsing namespace. Contains data that is useful for parsing related
+# functions. Initialized at each call to (parse).
+pns = NS(context=None)
 
-unops = [
-    {'assoc': 'left', 'ops': {'greedy-quant'}},
-]
+def parse(regstr, flags):
+    """Creates the expression tree and the context."""
+    pns.context = common.Context(0, flags)
+    tokens = _TokenList(tokenize(regstr, flags))
+    return _parse(tokens), context
 
-binops = [
-    {'assoc': 'left', 'ops': {'|', 'X'}},
-]
-
-def isprimitive(token):
-    raise NotImplementedError
-
-def isoperator(token):
-    raise NotImplementedError
-
-# global compilation namespace.
-cns = NS(context=None)
-
-def compile(regstr, flags):
-    """Raises ValueError."""
-    cns.context = common.Context(0, flags)
-    tokens = TokenList(tokenize(regstr, flags))
-    return _compile(tokens, None)
-
-def _compile(tokens, grpi):
-    """Compiles (tokens) to a pattern with group index (grpi)."""
+def _parse(tokens):
+    """Parses (tokens) to an ExprTree. Fills out the context. Raises ValueError
+    if there is a problem."""
     
-    def first_pass():
-        """The token sequence is transformed into a sequence of patterns and
-        operators. During this tokens pass, we remember the positions of unary
-        and binary operators. As a side effect, the context will be completly
-        determined."""
+    def make_opsargs():
+        """In this function, the token sequence is transformed into a sequence
+        of ExprTrees (the operands) and operators. During this pass, we also
+        remember the positions of unary and binary operators for use in later
+        parsing stages. In addition, upon return, the context will be completed
+        (e.g. the number of groups will be known).
 
+        Intuition behind this function: I think of an expression, whether
+        arithmetic or regex or whatever, as a sequence of operators and
+        operands. This simply transforms the token sequence to match this view
+        of expressions.
+
+        Note: this function infers the location of product operators and adds
+        them. When we have an operand or unary operator that is directly
+        followed by another operand, a product operator must be inserted
+        in-between. For example, r'ab' contains the tokens 'a' and 'b', but the
+        expression is actually 'a<X>b', where <X> stands for the product
+        operator. Also consider r'a+b'. The expression that is actually meant is
+        r'(a+)<X>b'."""
+
+        # a doubly linked list containing operands and their arguments.
+        opsargs = dllist()
+
+        # a list of the positions of the unary operators within (opsargs)
+        unops = []
+        
+        # a dict which maps precedences to pairs (assoc, posns), where (assoc)
+        # is the associativity of the binary operators at (posns).
+        binops = {}
+
+        def add_unop(token):
+            pos = opsargs.append(token)
+            unops.append(pos)
+        
+        def add_binop(token):
+            bi = binfo(token)
+            pos = opsargs.append(token)
+            _, posns = unops.setdefault(bi.prec, (bi.assoc, []))
+            posns.append(pos)
+        
+        # The flag below is needed to determine if a product operator ought to
+        # be inserted.
+        last_is_expr_or_unop = False
+            
         for token in tokens:
-            if isprimitive(token):
-                pattern = _compile_primitive(token)
-                raise NotImplementedError
-            elif isoperator(token):
-                raise NotImplementedError
+            category = token_category(token)
+            if category == 'primitive':
+                subexpr = ExprTree(token, args=None, grpis=[])
+                if last_is_expr_or_unop:
+                    add_binop(Token('product', None))
+                opsargs.append(subexpr)
+                last_is_expr_or_unop = True
+            elif category == 'operator':
+                if isunop(token):
+                    add_unop(token)
+                    last_is_expr_or_unop = True
+                else:
+                    add_binop(token)
+                    last_is_expr_or_unop = False
             else: # is a parenthesis
-                subtokens = tokens.subtokens
+                subexpr = _parse(tokens.subtokens())
                 paren = token.type
                 if paren == '(':
-                    cns.context.numgrps += 1
-                    pattern = _compile(subtokens, grpi)
-                    # insert into global list
-                    raise NotImplementedError
+                    pns.context.numgrps += 1
+                    subexpr.grpis.append(pns.context.numgrps)
                 elif paren == '(?:':
-                    pattern = _compile(subtokens, None)
-                    # insert into global list
-                    raise NotImplementedError
+                    pass
                 elif paren in ('(?=', '(?!'):
-                    subpattern = _compile(subtokens, None)
-                    positive = (paren == '(?=')
-                    pattern = (patterns.ZeroWidth.
-                               lookahead(subpattern, positive, None, cns.context))
-                    raise NotImplementedError
-                else:
-                    assert paren == ')'
+                    subexpr = ExprTree(token, args=[subexpr], grpis=[])
+                elif paren == ')':
                     raise ValueError(f'Unneccessary closing parenthesis.')
+                else:
+                    raise AssertionError(f'This should not happen: {token}')
+                if last_is_expr_or_unop:
+                    add_binop(Token('product', None))
+                opsargs.append(subexpr)
+                last_is_expr_or_unop = True
 
-            return opsargs, unops, binops
+        binops = [item[1] for item in sorted(binops.items(), reverse=True)]        
+        return opsargs, unops, binops
 
-    @todo
     def process_unary_operators(opsargs, unops):
-        """Assumes (opsargs) contains only patterns and operator tokens. Some
+        """Assumes (opsargs) contains only (ExprTree)s and operator tokens. Some
         of those operators will be unary. This phase processes them out, so that
-        what is left will be an alternating sequence of patterns and binary
+        what is left will be an alternating sequence of (ExprTree)s and binary
         operators. To achieve this, (unops) is used. It must be a sequence of
-        (assoc, posns) pairs. (assoc) is either 'left' or 'right', while (posns)
-        is a list of positions within (ops_patterns). Each position in (posns)
-        must contain a unary operator."""
+        the positions of the unary operators."""
         
-        for assoc, unop_posns in unops:
-            if assoc is 'right':
-                unop_posns = reversed(unop_posns)
-            for unop_pos in unop_posns:
-                arg_pos = (opsargs.before(unop_pos)
-                           if assoc is 'left'
-                           else opsargs.after(unop_pos))
-                if (arg_pos is None or
-                    not isinstance(arg_pos.element, patterns.Pattern)):
-                    raise ValueError(f'Missing unary operator argument.')
-                # combine
-                pattern = raise NotImplementedError
-                arg_pos.element = pattern
-                opsargs.delete(unop_pos)
+        for unop_pos in unops:
+            arg_pos = unop_pos.prev
+            if arg_pos is None:
+                raise ValueError(f'Missing unary operator argument.')
+            operand = arg_pos.value
+            if type(operand) is not ExprTree:
+                raise ValueError(f'Bad unary operator argument.')
+            subexpr = ExprTree(token=unop_pos.value, # the operator token
+                               args=[operand], grpis=[])
+            arg_pos.value = subexpr
+            opsargs.remove(unop_pos)
                 
-        raise NotImplementedError
-    
     def process_binary_operators(opsargs, binops):
-        raise NotImplementedError
+        """At this point, (opsargs) should be an alternating sequence of
+        ExprTrees and binary operator tokens. The first and last elements should
+        be ExprTrees. This function reduces (opsargs) to a single ExprTree."""
+
+        def getarg(pos):
+            """helper for the loop below."""
+            if pos is None:
+                raise ValueError(f'Missing operand.')
+            value = pos.value
+            if type(value) is not ExprTree:
+                raise ValueError(f'Bad operand.')
+            return value
+        
+        for assoc, binop_posns in binops:
+            if assoc == 'right':
+                binop_posns = reversed(binop_posns)
+            for binop_pos in binop_posns:
+                left, right = binop_pos.prev, binop_pos.next
+                arg1, arg2 = getarg(left), getarg(right)
+                subexpr = ExprTree(token=binop_pos.value,
+                                   args=[arg1, arg2],
+                                   grpis=[])
+                binop_pos.value = subexpr
+                opsargs.remove(left)
+                opsargs.remove(right)
 
     opsargs, unops, binops = first_pass()
     process_unary_operators(opsargs, unops)
-    return process_binary_operators(opsargs, binops)
-
-def _compile_primitive(token):
-    raise NotImplementedError
-            
-def _compile_binops(mainseq, binops):
-    raise NotImplementedError
+    process_binary_operators(opsargs, binops)
+    return opsargs.first.value
 
 # ----------------------------------------
 # Tokenization
@@ -177,22 +275,15 @@ HEX_DIGITS = f'0123456789abcdefABCDEF'
 ESCAPE_CHARS = {'a': '\a', 'f': '\f', 'n': '\n', 'r': '\r',
                't': '\t', 'v': '\v', 'b': '\b'}
 
-Token = namedtuple('Token', 'type data')
-
 """
 Tokenization here is not a strictly syntactical operation. It also does some
 preliminary processing (like determining the characters in a character set, the
-bounds of a greedy quantifier and more.
+bounds of a greedy quantifier and more.)
 
 The character set used is {chr(i) for i in range(256)}, so all characters whose
 encoding can fit in a byte. The idea is to support all ascii characters. I chose
 this set for simplicity; the purpose of this project is to practice, nobody will
-really it.
-
-Document:
-- charset
-- backlash
-- char class template semantics
+really use it.
 
 The possible tokens are:
 - characters: (type='char', data=<char>). For example, ('char', 'A'), ('char',
