@@ -69,9 +69,11 @@ class TestTokenizer(unittest.TestCase):
         for k in range(24):
             random.shuffle(quants)
             tokens = self.noflags(''.join(quants))
-            self.assertEqual(set(tokens), expected_bounds)
-            
-        
+            bounds = {token.data for token in tokens}
+            self.assertEqual(bounds, expected_bounds)
 
+    def test_class_shorts(self):
+        shorts = list(CLASS_SHORTS)
+            
 def main():
     unittest.main(__name__)
