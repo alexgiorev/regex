@@ -250,7 +250,7 @@ class Literal(Pattern):
             ignorecase = IGNORECASE in pattern._context.flags
             
             literal = pattern._literal
-            substr = astr[i, i+len(literal)]
+            substr = astr[i:i+len(literal)]
             matches = (literal.lower() == substr.lower()
                        if ignorecase else literal == substr)
             if matches:

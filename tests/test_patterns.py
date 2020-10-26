@@ -42,7 +42,7 @@ def concat(grpi, context, *args):
     return Product(left, args[-1], grpi, context)
 
 def makestr(chars, grpi, context):
-    charpats = (Char(char, None, context) for char in chars)
+    charpats = (Literal(char, None, context) for char in chars)
     return concat(grpi, context, *charpats)
 
 # ----------------------------------------
@@ -100,7 +100,7 @@ class Test(unittest.TestCase):
     def test_quant_with_char(self):
         # r'(-)+'
         context = Context(numgrps=1)
-        child = Char('-', 1, context)
+        child = Literal('-', 1, context)
         p = plus(child, None, context)
         l = p.findall('-a--b---c----d')
         self.assertEqual(l, ['-', '--', '---', '----'])
@@ -113,7 +113,7 @@ class Test(unittest.TestCase):
 
         # r'-{2,5}'
         context = Context()
-        child = Char('-', None, context)
+        child = Literal('-', None, context)
         p = GreedyQuant(child, 2, 5, None, context)
         l = p.findall('-a--b---c----d-----e------f')
         self.assertEqual(l, ['-'*2, '-'*3, '-'*4, '-'*5, '-'*5])
@@ -145,7 +145,7 @@ class Test(unittest.TestCase):
         context = Context(numgrps=2)
         w1 = word_pattern(1, context)
         w2 = word_pattern(2, context)
-        hyphen = Char('-', None, context)
+        hyphen = Literal('-', None, context)
         p = concat(None, context, w1, hyphen, w2)
 
         m = p.search('xy--yx ab-cd gh-12')
