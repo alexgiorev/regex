@@ -3,11 +3,9 @@ import random
 import string
 import functools
 
-from mre import common
+from mre import *
 
-from mre.patterns import *
-
-# ----------------------------------------
+########################################
 # utils
 
 def word_class(grpi, context):
@@ -52,7 +50,7 @@ def makestr(chars, grpi, context):
 
 class Test(unittest.TestCase):
     def test_word_class(self):
-        wp = word_class(None, common.Context())
+        wp = word_class(None, Context())
         m = wp.match('a')
         self.assertTrue(m)
 
@@ -75,21 +73,21 @@ class Test(unittest.TestCase):
         self.assertEqual(l, list('1abz_ZBA0'))
 
     def test_concat_via_makestr(self):
-        p = makestr("first", None, common.Context())
+        p = makestr("first", None, Context())
         m = p.match("first second third")
         self.assertTrue(m)
 
         m = p.match("First second third")
         self.assertFalse(m)
 
-        p = makestr("first", 1, common.Context(1, common.IGNORECASE))
+        p = makestr("first", 1, Context(1, IGNORECASE))
         m = p.search("second First third")
 
         self.assertTrue(m)
         self.assertEqual(m.group(), m.group(1), "First")
 
     def test_word_boundary(self):
-        p = ZeroWidth.fromstr(r'\b', None, common.Context())
+        p = ZeroWidth.fromstr(r'\b', None, Context())
         m = p.match('Here')
         self.assertTrue(m)
 
@@ -101,7 +99,7 @@ class Test(unittest.TestCase):
 
     def test_quant_with_char(self):
         # r'(-)+'
-        context = common.Context(numgrps=1)
+        context = Context(numgrps=1)
         child = Char('-', 1, context)
         p = plus(child, None, context)
         l = p.findall('-a--b---c----d')
@@ -114,7 +112,7 @@ class Test(unittest.TestCase):
         self.assertEqual(m.group(), '---')
 
         # r'-{2,5}'
-        context = common.Context()
+        context = Context()
         child = Char('-', None, context)
         p = GreedyQuant(child, 2, 5, None, context)
         l = p.findall('-a--b---c----d-----e------f')
@@ -128,7 +126,7 @@ class Test(unittest.TestCase):
 
     def test_word_pattern(self):
         # r'\w+
-        p = word_pattern(None, common.Context())
+        p = word_pattern(None, Context())
         
         l = p.findall('.!-first|second..third')
         self.assertEqual(l, ['first', 'second', 'third'])
@@ -137,14 +135,14 @@ class Test(unittest.TestCase):
         self.assertEqual(set(l), {'a', 'ab', 'abc', 'abcd'})
 
     def test_spaces1(self):
-        context = common.Context()
+        context = Context()
         p = spaces1(None, context)
         l = list(m.group() for m in p.finditer('aaa bbb \t ccc \t\n'))
         self.assertEqual(l, [' ', ' \t ', ' \t\n'])
 
     def test_backref(self):
         # r'(\w+)-(\w+)'
-        context = common.Context(numgrps=2)
+        context = Context(numgrps=2)
         w1 = word_pattern(1, context)
         w2 = word_pattern(2, context)
         hyphen = Char('-', None, context)
@@ -159,9 +157,9 @@ class Test(unittest.TestCase):
     def test_double_word(self):
         # r'\b(\w+)\s+\1\b'
         def makeit(ignorecase):            
-            context = common.Context(numgrps=1)
-            flags = common.I if ignorecase else None
-            context = common.Context(numgrps=1, flags=flags)
+            context = Context(numgrps=1)
+            flags = IGNORECASE if ignorecase else None
+            context = Context(numgrps=1, flags=flags)
             b1 = ZeroWidth.fromstr(r'\b', None, context)
             b2 = ZeroWidth.fromstr(r'\b', None, context)
             word = word_pattern(1, context)
