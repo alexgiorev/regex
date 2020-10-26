@@ -241,7 +241,7 @@ class Pattern:
         return out
 
 
-class Char(Pattern):
+class Literal(Pattern):
     class _Match(Match):
         """Apart from the attributes which all match objects have, there are no extra ones."""
         
@@ -249,24 +249,22 @@ class Char(Pattern):
             m = object.__new__(cls)
             ignorecase = IGNORECASE in pattern._context.flags
             
-            if i == len(astr):
-                return None
+            literal = pattern._literal
+            substr = astr[i, i+len(literal)]
+            matches = (literal.lower() == substr.lower()
+                       if ignorecase else literal == substr)
+            if matches:
+                m.string = astr
+                m._start = i
+                m._end = i+len(literal)
+                m._groupi = pattern._groupi
+                m._groups = pattern._context.groups
+                m._mstr = literal
+                m._is_exhausted = False
+                m._groups.add(m)
+                return m
             else:
-                astr_char = astr[i]
-                matches = (pattern._char.lower() == astr_char.lower()
-                           if ignorecase else pattern._char == astr_char)
-                if matches:
-                    m.string = astr
-                    m._start = i
-                    m._end = i + 1
-                    m._groupi = pattern._groupi
-                    m._groups = pattern._context.groups
-                    m._mstr = astr_char
-                    m._is_exhausted = False
-                    m._groups.add(m)
-                    return m
-                else:
-                    return None
+                return None
 
         def _next(self):
             self._check_exhausted()
@@ -274,8 +272,8 @@ class Char(Pattern):
             self._start = self._end = self._mstr = None
             return self._groups.remove(self)
 
-    def __init__(self, char, groupi, context):
-        self._char = char
+    def __init__(self, literal, groupi, context):
+        self._literal = literal
         self._groupi = groupi
         self._context = context
 
