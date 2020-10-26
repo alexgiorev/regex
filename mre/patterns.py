@@ -1,19 +1,19 @@
 import sys
 
 from collections import OrderedDict
-
 from . import common
 
 class Match:
     """Base class for match objects.
-    The attributes shared by all Match instances are:
+    The attributes which all Match instances have are:
     - string: the string on which the match was made. match._mstr is a substring
       of this.
     - _mstr: the matched substring.
-    - _groupi: the group index.
-    - _groups
+    - _groupi: the group index of the parent pattern.
+    - _groups: the list of ordered dicts for each group
     - _start, _end: these determine the span of the matched substring.
-    - _is_exhausted
+    - _is_exhausted: True when ._mstr has gone through all possible substrings
+      of .string which match the pattern
     """
 
     # __new__ documentation:
@@ -35,20 +35,8 @@ class Match:
         (e.g. (self._mstr) and (self._end) will change). But if there is no such
         substring (i.e. when (self) corresponds to the last of the possible
         substrings that match (P) at (i)), then calling (self._next()) will
-        return False and at that point (self) will be exhausted. Calling
-        (self._next()) when (self) is exhausted raises a ValueError.
-
-        Consider the following example: let P = r'(abcd)*', S = 'xxxabcyyy', i =
-        3, m = P._match(S, i). Then (m._mstr == 'abc'), (m._start == 3), (m._end
-        == 6) and (m.group(1) == 'c'). Now assume (m._next()) is executed. It
-        will return True, (m._mstr == 'ab'), (m._start == 3), (m._end == 5) and
-        (m.group(1) == 'b'). Again we execute (m._next()), again it returns True
-        and this time (m._mstr == 'a'), (m._start == 3), (m._end == 4) and
-        (m.group(1) == 'a'). One more time! We execute (m._next()), it returns
-        True, (m._mstr == ''), (m._start == 3), (m._end == 3) and (m.group(1) ==
-        None). Finally, if at this point (m._next()) is executed, it returns
-        False, and all of m._mstr, m._start, m._end and m.group(1) are None. If
-        now (m._next()) is executed, it will raise a ValueError."""
+        return False and at that point (self) has been exhausted. Calling
+        (self._next()) when (self) is exhausted raises a ValueError."""
         raise NotImplementedError
 
     def _add_to_groups(self):
@@ -65,8 +53,8 @@ class Match:
     def _remove_from_groups(self):
         """Assumes (self) is not exhausted. Always returns False. Returing False
         is useful because in many situations we remove from groups and then
-        return False. It is more convenient to just write (return m.remove_from_groups())
-        rather than (m.remove_from_groups(); return False)."""
+        return False. It is more convenient to just write (return m._remove_from_groups())
+        rather than (m._remove_from_groups(); return False)."""
         
         if self._groupi is not None:
             od = self._groups[self._groupi]
@@ -136,7 +124,7 @@ class Match:
         return (self.start(i), self.end(i))
 
     def _boundary(self, i, hint):
-        """Helper for self.start and self.end. Finds the match (m) which has
+        """Helper for (self.start) and (self.end). Finds the match (m) which has
         group number (i). If there is no such match, -1 is returned. If (hint ==
         'start'), the start index of (m) is returned, while if (hint == 'end'),
         the end index is returned."""
@@ -172,7 +160,7 @@ class Pattern:
     child, which is a concatenation operator which has two children, the letters
     'a' and 'b'.
 
-    All patterns in a pattern tree share the same context, which is the _context
+    All patterns in a pattern tree share the same context, stored in the _context
     attribute, so that (p1._context is p2._context) for any two patterns p1,p2
     in the same tree.
 
@@ -180,8 +168,8 @@ class Pattern:
     matches know where to put their matched strings.
 
     All pattern classes also have a _Match inner class. All matches generted
-    from a pattern are instances of it's _Match. These _Match classes are where
-    most of the matching logic is present.
+    from a pattern are instances of its _Match. These _Match classes are where
+    most of the matching logic resides.
     """
 
     # ----------------------------------------
