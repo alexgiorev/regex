@@ -3,8 +3,6 @@ import string
 from collections import namedtuple, deque
 from types import SimpleNamespace as NS
 
-import patterns
-
 from . import common
 from .llist import dllist
 
@@ -28,7 +26,7 @@ def isunop(token):
 # associativity and a set of operators which have that associativity. All
 # operators in a (binops) element have the same precedence, which is less than
 # that of previous elements' operators, and greater than that of next elements'
-# operators. In other words, operators in descending precedence order.
+# operators. In other words, operators are in descending precedence order.
 binops = [
     NS(assoc='left', ops={'product'}),
     NS(assoc='left', ops={'|'})
@@ -117,7 +115,7 @@ def parse(regstr, flags):
     """Creates the expression tree and the context."""
     pns.context = common.Context(0, flags)
     tokens = _TokenList(tokenize(regstr, flags))
-    return _parse(tokens), context
+    return _parse(tokens), pns.context
 
 def _parse(tokens):
     """Parses (tokens) to an ExprTree. Fills out the context. Raises ValueError
@@ -160,7 +158,7 @@ def _parse(tokens):
         def add_binop(token):
             bi = binfo(token)
             pos = opsargs.append(token)
-            _, posns = unops.setdefault(bi.prec, (bi.assoc, []))
+            _, posns = binops.setdefault(bi.prec, (bi.assoc, []))
             posns.append(pos)
         
         # The flag below is needed to determine if a product operator ought to
@@ -250,7 +248,7 @@ def _parse(tokens):
                 opsargs.remove(left)
                 opsargs.remove(right)
 
-    opsargs, unops, binops = first_pass()
+    opsargs, unops, binops = make_opsargs()
     process_unary_operators(opsargs, unops)
     process_binary_operators(opsargs, binops)
     return opsargs.first.value
@@ -258,7 +256,7 @@ def _parse(tokens):
 # ----------------------------------------
 # Tokenization
 
-ALL = frozenset(chr(i) for i in range(256)) # whole character set.
+ALL = frozenset(chr(i) for i in range(2**7)) # whole character set.
 DOT_NO_ALL = ALL-{'\n'} # dot characters without DOTALL flag.
 DIGIT = frozenset(string.digits)
 ALPHANUMERIC = frozenset(string.ascii_letters + string.digits + '_')
@@ -281,7 +279,7 @@ preliminary processing (like determining the characters in a character set, the
 bounds of a greedy quantifier and more.)
 
 The character set used is {chr(i) for i in range(256)}, so all characters whose
-encoding can fit in a byte. The idea is to support all ascii characters. I chose
+encoding can fit in a byte. The idea is to support all ASCII characters. I chose
 this set for simplicity; the purpose of this project is to practice, nobody will
 really use it.
 
@@ -634,5 +632,4 @@ def char():
         else:
             token_error(f'"{nxt}" is not a valid escape character, at {tns.pos}.')
     else:
-        tns.pos += 1
         return Token('char', ch)
