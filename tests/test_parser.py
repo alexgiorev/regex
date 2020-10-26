@@ -3,6 +3,7 @@ import string
 import random
 
 from mre.parser import *
+from mre import common
 
 class TestTokenizer(unittest.TestCase):
     @staticmethod
@@ -72,8 +73,18 @@ class TestTokenizer(unittest.TestCase):
             bounds = {token.data for token in tokens}
             self.assertEqual(bounds, expected_bounds)
 
-    def test_class_shorts(self):
-        shorts = list(CLASS_SHORTS)
-            
+class TestParser(unittest.TestCase):
+    @staticmethod
+    def nf(regstr):
+        """Parse without flags."""
+        return parse(regstr, common.emptyflags())[0]
+    
+    def test(self):
+        et = self.nf('ab')
+        self.assertEqual(et.token.type, 'product')
+        arg1, arg2 = et.args
+        self.assertEqual(arg1.token.type, arg2.token.type, 'char')
+        self.assertEqual([arg1.token.data, arg2.token.data], ['a', 'b'])
+        
 def main():
     unittest.main(__name__)

@@ -191,7 +191,5 @@ class Test(unittest.TestCase):
         self.assertEqual(
             l, ['a a', 'at aT', 'tHe the', 'LosT loSt', '2009 2009'])
 
-        
-
 def main():
     unittest.main(__name__)
