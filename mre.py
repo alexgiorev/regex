@@ -40,11 +40,11 @@ class Match:
       of .string which match the pattern
     """
 
-    # __new__ documentation:
-    # def __new__(cls, astr, i, pattern):
-    # Assumes that (0 <= i <= len(astr)). Returns a match corresponding to
-    # the first substring of (astr) starting at (i) that matches (pattern), or
-    # None if such a string doesn't exist.
+    def __new__(cls, astr, i, pattern):
+        '''Assumes that (0 <= i <= len(astr)). Returns a match corresponding to
+        the first substring of (astr) starting at (i) that matches (pattern), or
+        None if such a string doesn't exist.'''
+        raise NotImplementedError
 
     def _next(self):
         """When trying to match a pattern (P) at a given position (i) in a
@@ -67,8 +67,8 @@ class Match:
         if self._is_exhausted:
             raise ValueError('Exhausted match object.')        
 
-    # ----------------------------------------
-    # Public functions and their helpers
+    ########################################
+    # Public functions and their helpers thereof
 
     def __bool__(self):
         return True
@@ -247,7 +247,7 @@ class Char(Pattern):
         
         def __new__(cls, astr, i, pattern):
             m = object.__new__(cls)
-            ignorecase = RegexFlags.I in pattern._context.flags
+            ignorecase = IGNORECASE in pattern._context.flags
             
             if i == len(astr):
                 return None
@@ -283,7 +283,7 @@ class Char(Pattern):
 class CharClass(Pattern):
     class _Match(Match):
         def __new__(cls, astr, i, pattern):            
-            ignorecase = RegexFlags.I in pattern._context.flags
+            ignorecase = IGNORECASE in pattern._context.flags
             if i == len(astr):
                 return None
             else:
@@ -312,7 +312,7 @@ class CharClass(Pattern):
                 
     def __init__(self, chars, groupi, context):
         self._chars = (chars
-                      if not RegexFlags.I in context.flags
+                      if not IGNORECASE in context.flags
                       else {char.lower() for char in chars})
         self._groupi = groupi
         self._context = context
@@ -394,7 +394,7 @@ class ZeroWidth(Pattern):
         def Z(string, i):
             return i == len(string)
 
-        if RegexFlags.M in context.flags:
+        if MULTILINE in context.flags:
             @predicate('^')
             def caret(string, i):
                 return i == 0 or string[i-1] == '\n'
@@ -423,7 +423,7 @@ class BackRef(Pattern):
     class _Match(Match):
         def __new__(cls, astr, i, pattern):
             ref, groups = pattern._ref, pattern._context.groups
-            ignorecase = RegexFlags.I in pattern._context.flags
+            ignorecase = IGNORECASE in pattern._context.flags
             mstr = groups.latest(ref)
             if mstr is None:
                 return None
@@ -1230,7 +1230,7 @@ def char_class_shorts():
     ch = takech(True)
     chars = None # the set of characters
     if ch == '.':
-        chars = (ALL if RegexFlags.DOTALL in tns.flags
+        chars = (ALL if DOTALL in tns.flags
                  else DOTNOALL)
     elif ch == '\\':
         nxt = takech(True)
@@ -1315,6 +1315,10 @@ class RegexFlags(enum.Flag):
     MULTILINE = M = enum.auto()
     DOTALL = S = enum.auto()
 
+# make the flags available at the top level
+for name, flag in RegexFlags.__members__.items():
+    globals()[name] = flag
+    
 ########################################
 # Context
 
@@ -1345,7 +1349,7 @@ class Context:
     def __init__(self, numgrps=0, flags=None):
         self.groups = None
         self._numgrps = numgrps
-        self.flags = emptyflags() if flags is None else flags
+        self.flags = RegexFlags(0) if flags is None else flags
 
     def initialize(self):
         """Create the list (result = [None] + odicts) and bind it to
