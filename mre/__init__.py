@@ -4,5 +4,16 @@ from . import common
 common.define_flags(globals())
 
 def compile(regstr, flags):
-    """Returns a pattern corresponding to (regstr)."""
+    raise NotImplementedError
+
+def search(regstr, string, flags):
+    raise NotImplementedError
+
+def match(regstr, string, flags):
+    raise NotImplementedError
+
+def findall(regstr, string, flags):
+    raise NotImplementedError
+
+def finditer(regstr, string, flags):
     raise NotImplementedError
