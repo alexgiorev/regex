@@ -10,7 +10,7 @@ class Match:
       of this.
     - _mstr: the matched substring.
     - _groupi: the group index of the parent pattern.
-    - _groups: the list of ordered dicts for each group
+    - _groups: the Groups instance
     - _start, _end: these determine the span of the matched substring.
     - _is_exhausted: True when ._mstr has gone through all possible substrings
       of .string which match the pattern
@@ -39,28 +39,6 @@ class Match:
         (self._next()) when (self) is exhausted raises a ValueError."""
         raise NotImplementedError
 
-    def _add_to_groups(self):
-        """Assumes (self) is not exhausted. Always returns True. Returning True
-        is useful because in many situations we add to groups and then return
-        True. It is more convenient to just write (return m._add_to_groups())
-        rather than (m._add_to_groups(); return True)."""
-        
-        if self._groupi is not None:
-            od = self._groups[self._groupi]
-            od[self] = self._mstr
-        return True
-
-    def _remove_from_groups(self):
-        """Assumes (self) is not exhausted. Always returns False. Returing False
-        is useful because in many situations we remove from groups and then
-        return False. It is more convenient to just write (return m._remove_from_groups())
-        rather than (m._remove_from_groups(); return False)."""
-        
-        if self._groupi is not None:
-            od = self._groups[self._groupi]
-            od.pop(self, None)
-        return False
-
     def _check_exhausted(self):
         if self._is_exhausted:
             raise ValueError('Exhausted match object.')        
@@ -74,19 +52,11 @@ class Match:
     def __getitem__(self, i):
         return self.group(i)
 
-    @property
-    def _numgrps(self):
-        """Just a helper function which returns the number of groups. Group
-        numbers start from 1. (self._groups) is a list whose first element is
-        None and all other elements correspond to actual groups. This is why the
-        length is decremented."""
-        return len(self._groups) - 1
-
     def _check_index(self, i):
         """A helper for the functions which make use of groups."""
         if type(i) is not int:
             raise TypeError(f'Index must be an int, not {type(i)}: {i}')
-        if not 0 <= i <= self._numgrps:
+        if not 0 <= i <= self.len(self._groups):
             raise IndexError(f'No such group: {i}')
 
     def group(self, *indices):
@@ -105,7 +75,7 @@ class Match:
             self._check_index(i)
             if i == 0:
                 return self._mstr
-            return common.latest(self._groups, i)
+            return self._groups.latest(i)
         if len(indices) == 0:
             return extract(0)
         elif len(indices) == 1:
@@ -117,7 +87,7 @@ class Match:
         """Mostly equivalent to (self.group(1, 2, ..., N)) where (N) is the
         number of groups. The difference is that if (group(k) is None), then
         (result[k] is default)."""
-        mstrs = (self.group(i) for i in range(1, self._numgrps + 1))
+        mstrs = (self.group(i) for i in range(1, len(self._groups)+1))
         return tuple(default if mstr is None else mstr for mstr in mstrs)
 
     def span(self, i=0):
@@ -134,7 +104,7 @@ class Match:
         if i == 0:
             m = self
         else:
-            m = common.latest(self._groups, i, hint='match')
+            m = self._groups.latest(i, hint='match')
             if m is None:
                 return -1
         return m._start if hint == 'start' else m._end
@@ -269,7 +239,7 @@ class Char(Pattern):
                     m._groups = pattern._context.groups
                     m._mstr = astr_char
                     m._is_exhausted = False
-                    m._add_to_groups()
+                    m._groups.add(m)
                     return m
                 else:
                     return None
@@ -278,7 +248,7 @@ class Char(Pattern):
             self._check_exhausted()
             self._is_exhausted = True
             self._start = self._end = self._mstr = None
-            return self._remove_from_groups()
+            return self._groups.remove(self)
 
     def __init__(self, char, groupi, context):
         self._char = char
@@ -305,7 +275,7 @@ class CharClass(Pattern):
                     m._groupi = pattern._groupi
                     m._mstr = astr_char
                     m._is_exhausted = False
-                    m._add_to_groups()
+                    m._groups.add(m)
                     return m
                 else:
                     return None
@@ -314,7 +284,7 @@ class CharClass(Pattern):
             self._check_exhausted()
             self._is_exhausted = True
             self._mstr = self._start = self._end = None
-            return self._remove_from_groups()
+            return self._groups.remove(self)
                 
     def __init__(self, chars, groupi, context):
         self._chars = (chars
@@ -346,7 +316,7 @@ class ZeroWidth(Pattern):
                 m._groups = pattern._context.groups
                 m._start = m._end = i
                 m._is_exhausted = False
-                m._add_to_groups()
+                m._groups.add(m)
                 return m
             else:
                 return None
@@ -355,7 +325,7 @@ class ZeroWidth(Pattern):
             self._check_exhausted()
             self._is_exhausted = True
             self._mstr = self._start = self._end = None
-            return self._remove_from_groups()
+            return self._groups.remove(self)
     
     @classmethod
     def lookahead(cls, pattern, positive, groupi, context):
@@ -443,7 +413,7 @@ class BackRef(Pattern):
                 m._groupi, m._groups = pattern._groupi, groups      
                 m._start, m._end = i, end
                 m._is_exhausted = False
-                m._add_to_groups()
+                m._groups.add(m)
                 return m
             else:
                 return None
@@ -452,7 +422,7 @@ class BackRef(Pattern):
             self._check_exhausted()
             self._is_exhausted = True
             self._mstr = self._start = self._end = None
-            return self._remove_from_groups()
+            return self._groups.remove(self)
 
     def __init__(self, ref, groupi, context):
         self._ref = ref
@@ -498,7 +468,7 @@ class Alternative(Pattern):
             """Assumes (self._child) is set. Always returns True."""
             c = self._child
             self._mstr, self._start, self._end = (c._mstr, c._start, c._end)
-            return self._add_to_groups() # True
+            return self._groups.add(self) # True
                     
         def _next(self):
             self._check_exhausted()            
@@ -514,7 +484,7 @@ class Alternative(Pattern):
                 else:
                     self._mstr = self._start = self._end = None
                     self._is_exhausted = True
-                    return self._remove_from_groups()
+                    return self._groups.remove(self)
 
     def __init__(self, left, right, groupi, context):
         self._left = left
@@ -555,7 +525,7 @@ class GreedyQuant(Pattern):
             while len(m._children) < m._low:
                 if not m._next_high():
                     return None
-            m._add_to_groups()
+            m._groups.add(m)
             return m
 
         @property
@@ -579,10 +549,10 @@ class GreedyQuant(Pattern):
             self._check_exhausted()
             while self._next_high():
                 if len(self._children) >= self._low:
-                    return self._add_to_groups()
+                    return self._groups.add(self)
             self._is_exhausted = True
             self._start = None
-            return self._remove_from_groups()
+            return self._groups.remove(self)
 
         def _next_high(self):
             """Assumes (self) isn't exhausted. Updates (self) to the next match
@@ -650,7 +620,7 @@ class Product(Pattern):
                     m._rightpattern = pattern._right
                     m._leftchild = leftmatch
                     m._rightchild = rightmatch
-                    m._add_to_groups()
+                    m._groups.add(m)
                     return m
                 if not leftmatch._next():
                     return None
@@ -667,18 +637,18 @@ class Product(Pattern):
         def _next(self):
             self._check_exhausted()
             if self._rightchild._next():
-                return self._add_to_groups()
+                return self._groups.add(self)
             else:
                 while self._leftchild._next():
                     rightmatch = self._rightpattern._match(
                         self.string, self._leftchild._end)
                     if rightmatch:
                         self._rightchild = rightmatch
-                        return self._add_to_groups()
+                        return self._groups.add(self)
                 else:
                     self._is_exhausted = True
                     self._start = None
-                    return self._remove_from_groups()
+                    return self._groups.remove(self)
 
     def __init__(self, left, right, groupi, context):
         self._left = left

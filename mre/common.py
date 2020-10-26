@@ -54,30 +54,7 @@ class Context:
     simply done by changing (context.groups) in one subpattern.
 
     Attributes:
-    - groups: None or a list of OrderedDicts which map match objects to the
-      strings they match. The reasons for this data structure choice is given
-      next:
-      
-      Lets consider an example: we have a pattern (P) with group index (i). Lets
-      assume its parent is the star quantifier '*'. The parent finds 3 matches
-      of (P), (m1, m2, m3). At this point parent.group(i) will return the string
-      matched by (m3). But assume the parent is then asked to backtrack, and
-      its state changes to (m1, m2). Then we want parent.group(i) to result in
-      (m2)'s string. So at first we have context.groups[i] = {m1: m1_string, m2:
-      m2_string, m3: m3_string}, and since pattern.group(i) simply returns the
-      last string of pattern.context.groups[i], it will return m3_string. As
-      part of backtracking, the parent removes m3 from the odict, so that
-      context.groups becomes {m1: m1_string, m2: m2_string} so that
-      parent.group(i) returns m2_string.
-    
-      In general, a given group index can be occupied by more than one match
-      objects. A match can be alive for a while, but discarded for backtracking
-      needs. When discarding, we must remove the proper string, the one
-      belonging to that match, which is why a dict is used. But when getting the
-      matched string at some group index, we want the latest one, which is why
-      order is needed. The combination of order and mapping requirements yields
-      the OrderedDict choice.
-
+    - groups: a Groups instance
     - numgrps: the number of groups. If (groups is not None) then (len(groups)
       == numgrps). This is useful for creating (groups) when it is None.
     - flags: For example, IGNORECASE, MULTILINE, etc.
@@ -94,19 +71,47 @@ class Context:
         (self._numgrps). Parenthesis are numbered starting from 1, so this
         allows to reference the proper ordered dict using
         (result[parenthesis_index])."""        
-        self.groups = [None]
-        self.groups.extend(OrderedDict() for k in range(self._numgrps))
+        self.groups = Groups(self._numgrps)
         
 ########################################
-# utilities
+# Groups
 
-def latest(groups, i, hint='str'):
-    """For (groups) at (i), returns the lates string or match, when (hint ==
-    'str') or (hint == 'match') respectively. If there is nothing stored at (i),
-    None is returned."""
-    assert hint in ('str', 'match')
-    odict = groups[i]
-    if not odict:
-        return None
-    itr = odict.values() if hint == 'str' else odict.keys()
-    return next(reversed(itr))
+class Groups:
+    def __init__(self, N):
+        self._N = N
+        self._lst = [None]
+        self._lst.extend(OrderedDict() for k in range(N))
+
+    def __len__(self):
+        return self.N
+
+    def latest(self, i, hint='str'):
+        """Returns the lates string (when (hint == 'str')) or match (when (hint
+        == 'match')) at with group index (i). If there is nothing stored at (i),
+        None is returned."""
+        assert hint in ('str', 'match')
+        odict = self._lst[i]
+        if not odict:
+            return None
+        itr = odict.values() if hint == 'str' else odict.keys()
+        return next(reversed(itr))
+
+    def add(self, match):
+        """Assumes (match) is not exhausted. Always returns True. Returning True
+        is useful because in many situations we add to groups and then return
+        True. It is more convenient to just write (return m.groups.add(m))
+        rather than (m.groups.add(m); return True)."""
+        if match._groupi is not None:
+            odict = self._lst[match._groupi]
+            odict[match] = match._mstr
+        return True
+    
+    def remove(self, match):
+        """Assumes (self) is not exhausted. Always returns False. Returing False
+        is useful because in many situations we remove from groups and then
+        return False. It is more convenient to just write (return m._remove_from_groups())
+        rather than (m._remove_from_groups(); return False)."""        
+        if match._groupi is not None:
+            odict = self._lst[match._groupi]
+            odict.pop(match, None)
+        return False
