@@ -1,6 +1,7 @@
 from collections import OrderedDict
 
-# -------------------- FLAGS --------------------
+########################################
+# Flags
 
 """
 Flags are represented as singleton sets. The elements of the sets are objects
@@ -32,7 +33,8 @@ def contains_flag(flags, flag):
     """Checks if (flag) belongs to the collection of flags (flags)."""
     return flag <= flags
 
-# -------------------- CONTEXT --------------------
+########################################
+# Context
 
 class Context:
     """
@@ -53,14 +55,14 @@ class Context:
 
     Attributes:
     - groups: None or a list of OrderedDicts which map match objects to the
-      strings they match. The reasons for this data structure choice is outlined
+      strings they match. The reasons for this data structure choice is given
       next:
       
       Lets consider an example: we have a pattern (P) with group index (i). Lets
-      assume it's parent is the star quantifier '*'. The parent finds 3 matches
+      assume its parent is the star quantifier '*'. The parent finds 3 matches
       of (P), (m1, m2, m3). At this point parent.group(i) will return the string
       matched by (m3). But assume the parent is then asked to backtrack, and
-      it's state changes to (m1, m2). Then we want parent.group(i) to result in
+      its state changes to (m1, m2). Then we want parent.group(i) to result in
       (m2)'s string. So at first we have context.groups[i] = {m1: m1_string, m2:
       m2_string, m3: m3_string}, and since pattern.group(i) simply returns the
       last string of pattern.context.groups[i], it will return m3_string. As
@@ -91,12 +93,11 @@ class Context:
         (self.groups). (odicts) is a list of OrderedDicts of length
         (self._numgrps). Parenthesis are numbered starting from 1, so this
         allows to reference the proper ordered dict using
-        (result[parenthesis_index])."""
-        
+        (result[parenthesis_index])."""        
         self.groups = [None]
         self.groups.extend(OrderedDict() for k in range(self._numgrps))
         
-# ----------------------------------------
+########################################
 # utilities
 
 def latest(groups, i, hint='str'):
