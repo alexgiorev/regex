@@ -9,41 +9,43 @@ from mre import *
 # utils
 
 def word_class(grpi, context):
+    """Corresponds to r'\w'."""
     chars = set()
     chars.update(string.ascii_letters, '_', string.digits)
     return CharClass(chars, grpi, context)
 
 def space_class(grpi, context):
+    """Corresponds to r'\s'."""
     return CharClass(set(string.whitespace), grpi, context)
 
 def plus(child, grpi, context):
+    """Corresponds to r'<child>+'."""
     return GreedyQuant(child, 1, None, grpi, context)
 
 def star(child, grpi, context):
+    """Corresponds to r'<child>*'."""
     return GreedyQuant(child, 0, None, gpri, context)
 
 def qmark(child, grpi, context):
+    """Corresponds to r'<child>?'."""
     return GreedyQuant(child, 0, 1, grpi, context)
 
 def word_pattern(grpi, context):
-    # r'\w+'
+    """Corresponds to r'\w+'."""
     return plus(word_class(None, context), grpi, context)
 
 def spaces1(grpi, context):
-    # r'\s+'
+    """Corresponds to r'\s+'."""
     return plus(space_class(None, context), grpi, context)
 
 def concat(grpi, context, *args):
-    # Makes an assumption about associativity!
+    """Corresponds to r'<r1><r2>...<rN>', where args[K] is the pattern of <rK>."""
+    # Assumes that the concatenation operator is left-associative
     assert len(args) >= 2
     left = args[0]
     for right in args[1:-1]:
         left = Product(left, right, None, context)
     return Product(left, args[-1], grpi, context)
-
-def makestr(chars, grpi, context):
-    charpats = (Literal(char, None, context) for char in chars)
-    return concat(grpi, context, *charpats)
 
 # ----------------------------------------
 # Test cases
@@ -73,14 +75,14 @@ class Test(unittest.TestCase):
         self.assertEqual(l, list('1abz_ZBA0'))
 
     def test_concat_via_makestr(self):
-        p = makestr("first", None, Context())
+        p = Literal("first", None, Context())
         m = p.match("first second third")
         self.assertTrue(m)
 
         m = p.match("First second third")
         self.assertFalse(m)
 
-        p = makestr("first", 1, Context(1, IGNORECASE))
+        p = Literal("first", 1, Context(1, IGNORECASE))
         m = p.search("second First third")
 
         self.assertTrue(m)
