@@ -1,37 +1,13 @@
 from collections import OrderedDict
+import enum
 
 ########################################
 # Flags
 
-"""
-Flags are represented as singleton sets. The elements of the sets are objects
-whose only purpose is to have a unique identity. A collection of flags is a set
-of such objects. Observe that this design allows you to combine flags using
-bitwise-or operator. (flag1 | flag2 | flag3) results in a collection of flags
-which contains flag1, flag2 and flag3.
-"""
-
-# This data structure serves as a single point of control for the kinds of
-# flags. If a new flag is to be added, simply bind a tuple of the flag's names
-# to {object()}. The flag can then be referenced via those names from both this
-# module and the global one, because both call define_flags(globals())
-_flags = {('I', 'IGNORECASE'): {object()},
-          ('M', 'MULTILINE'): {object()},
-          ('S', 'DOTALL'): {object()}}
-
-def define_flags(ns):
-    for t, v in _flags.items():
-        for k in t:
-            ns[k] = v
-
-define_flags(globals())
-            
-def emptyflags():
-    return set()
-
-def contains_flag(flags, flag):
-    """Checks if (flag) belongs to the collection of flags (flags)."""
-    return flag <= flags
+class RegexFlags(enum.Flag):
+    IGNORECASE = I = enum.auto()
+    MULTILINE = M = enum.auto()
+    DOTALL = S = enum.auto()
 
 ########################################
 # Context
@@ -83,7 +59,7 @@ class Groups:
         self._lst.extend(OrderedDict() for k in range(N))
 
     def __len__(self):
-        return self.N
+        return self._N
 
     def latest(self, i, hint='str'):
         """Returns the lates string (when (hint == 'str')) or match (when (hint
