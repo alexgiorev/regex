@@ -261,7 +261,7 @@ class Literal(Pattern):
                 m._end = i+len(literal)
                 m._grpis = pattern._grpis
                 m._groups = pattern._context.groups
-                m._mstr = literal
+                m._mstr = substr
                 m._is_exhausted = False
                 m._groups.add(m)
                 return m
