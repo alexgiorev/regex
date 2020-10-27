@@ -5,6 +5,7 @@ import string
 
 from collections import namedtuple, deque, OrderedDict
 from types import SimpleNamespace as NS
+from pyllist import dllist
 
 ########################################
 # Interface
@@ -324,9 +325,9 @@ class ZeroWidth(Pattern):
     boundaries r'\b', caret '^' and dollar '$', and positive lookaheads
     (?=regex). All of those (and more) are handled by this class. The idea is
     that a predicate function (the _pred attribute of a ZeroWidth instance) is
-    used to determine if the condition at (i) holds. Various class methods in
-    this class serve to create the predicate function and return the zero-width
-    pattern corresponding to it."""
+    used to determine if the condition at (i) holds. Various class methods serve
+    to create the predicate function and return the zero-width pattern
+    corresponding to it."""
     
     class _Match(Match):
         def __new__(cls, string, i, pattern):
@@ -704,7 +705,7 @@ binops = [
 ]
 
 # What follows is a script which transforms (binops) into a dict which maps to a
-# binary operator it's precedence and associativity. The current version of
+# binary operator its precedence and associativity. The current version of
 # (binops) is easy for humans to manipulate, the new version will be easy for
 # programs to query.
 
@@ -724,8 +725,8 @@ def binfo(token):
 def token_category(token):
     """Tokens can be grouped into 3 categories:
     - primitives: letters, zero-width assertions, etc.
-    - operators.
-    - parenthesis.
+    - operators
+    - parenthesis
     This functions returns one of ('primitive', 'operator', 'parenthesis')
     """
     
@@ -738,7 +739,8 @@ def token_category(token):
         return 'primitive'
 
 class _TokenList:
-    """Used to efficiently iterate over the tokens."""
+    """Helper class for the internal function (make_oprsargs). Used to
+    efficiently iterate over the tokens."""
     
     def __init__(self, base, start=0, end=None):
         self.base = base
@@ -796,7 +798,7 @@ def _parse(tokens):
         """In this function, the token sequence is transformed into a sequence
         of ExprTrees (the operands) and operators. During this pass, we also
         remember the positions of unary and binary operators for use in later
-        parsing stages. In addition, upon return, the context will be completed
+        parsing stages. In addition, upon return, the Context will be completed
         (e.g. the number of groups will be known).
 
         Intuition behind this function: I think of an expression, whether
@@ -851,7 +853,7 @@ def _parse(tokens):
                 else:
                     add_binop(token)
                     last_is_expr_or_unop = False
-            else: # is a parenthesis
+            else: # (token) is a parenthesis
                 subexpr = _parse(tokens.subtokens())
                 paren = token.type
                 if paren == '(':
@@ -924,14 +926,14 @@ def _parse(tokens):
     process_binary_operators(opsargs, binops)
     return opsargs.first.value
 
-# ----------------------------------------
-# Tokenization
+########################################
+## Tokenization
 
 ALL = frozenset(chr(i) for i in range(2**7)) # whole character set.
 DOT_NO_ALL = ALL-{'\n'} # dot characters without DOTALL flag.
-DIGIT = frozenset(string.digits)
-ALPHANUMERIC = frozenset(string.ascii_letters + string.digits + '_')
-WHITESPACE = frozenset(string.whitespace)
+DIGIT = frozenset(string.digits) & ALL
+ALPHANUMERIC = frozenset(string.ascii_letters + string.digits + '_') & ALL
+WHITESPACE = frozenset(string.whitespace) & ALL
 # shorthands for character classes
 CLASS_SHORTS = {'d': DIGIT,
                 'D': ALL - DIGIT,
@@ -939,7 +941,7 @@ CLASS_SHORTS = {'d': DIGIT,
                 'S': ALL - WHITESPACE,
                 'w': ALPHANUMERIC,
                 'W': ALL - ALPHANUMERIC}
-SPECIAL = r'\[].^()|+*?{}'
+SPECIAL = r'\|+*?{}[].^$()'
 HEX_DIGITS = f'0123456789abcdefABCDEF'
 ESCAPE_CHARS = {'a': '\a', 'f': '\f', 'n': '\n', 'r': '\r',
                't': '\t', 'v': '\v', 'b': '\b'}
@@ -949,55 +951,67 @@ Tokenization here is not a strictly syntactical operation. It also does some
 preliminary processing (like determining the characters in a character set, the
 bounds of a greedy quantifier and more.)
 
-The character set used is {chr(i) for i in range(256)}, so all characters whose
-encoding can fit in a byte. The idea is to support all ASCII characters. I chose
-this set for simplicity; the purpose of this project is to practice, nobody will
-really use it.
+The character set used is {chr(i) for i in range(2**7)}. The idea is to support
+all ASCII characters. I chose this set for simplicity; the purpose of this
+project is to practice, nobody will really use it.
 
-The possible tokens are:
-- characters: (type='char', data=<char>). For example, ('char', 'A'), ('char',
-  '\n')
-- Parenthesis tokens. The possible types are {'(', '(?:', '(?=', '(?!',
-  ')'}. The (data) field is always None.
-- Character classes: (type='char-class', data=<set>). Here <set> is a set of
-  characters which appear in the class. So if the text is '[a-d1-5]', the token
-  will be (type='char-class', data=set('abcd')|set('12345')). This kind of token
-  encompasses escapes like (r'\d', r'\D', r'\s', r'\S', r'\w', r'\W'). For
-  example, r'\d' will expand to the token (type='char-class',
-  data=set('0123456789'))
-- Zero width assertions. The possible types are {'^', '$', r'\A', r'\Z', r'\b',
-  r'\B'}. For all, the (data) field is None.
-- Backreferences: (type='bref', data=<int>) where <int> is an integer >= 1
-- Some operators; the (type) is the operator, the (data) is None. The possible
-  types are {'|'}
-- Greedy quantifiers: (type='greedy-quant', data=(<low>, <high>)). <low> and <high>
-  are integers, with <low> <= <high>. This token group encompasses regex
-  operators like '*', '+', '?', '{<low>, <high>}'. The mapping from operators to token is:
-  '*' -> ('greedy-quant', (0, None))
-  '+' -> ('greedy-quant', (1, None))
-  '?' -> ('greedy-quant', (0, 1))
-  '{<low>,<high>}' -> ('greedy-quant', (int(<low>), int(<high>)))
+A token is represented via the Token class (see above). An instance of Token has
+a (type) and (data) attributes. The type says what kind of token this is
+(e.g. "char", "greedy-quant", etc.) while the data gives additional information
+that pertain to this specific token. For example, the "data" of a token
+representing a character class is the set of characters defined by the class.
 
-How regex parts map to tokens:
-- character class: (type='char-class', data=<set>)
-- Dot: (type='char-class', data=<set>). Here <set> is either the set of all
-  ascii characters, or all except '\n'. This depends on the DOTALL flag's
-  presense.
-- '\<digits>': (type='bref', data=int(<digits>))
-- '\d', '\D', '\s', '\S', '\w', '\W': (type='char-class', data=<set>).
-- '^', '$', '\A', '\b', '\B', '\Z', '|', '(', '(?:', '(?=', '(?!', ')': (type)
-  matches operator strings, (data) is None. For example, '(?=' maps to
-  (type='(?=', data=None).
-- '+', '*', '?', '{m,n}': (type='greedy-quant', data=(<low>,<high>))
+Here are the possible tokens:
+* operators
+** product :: Token('product', None)
+e.g. when we have r'<regex1><regex2>', the product operator is implied between them
+*** syntax
+There is no syntax for this operator. It is implicit when there are two adjacent
+operands. Tokenization never produces this token, it is inserted during parsing.
+** alternative :: Token('|', None)
+*** syntax: Just a '|' character.
+** greedy quantifiers :: Token('greedy-quant', (low, high))
+*** How the different operators map to 'greedy-quant' tokens. Also shows their syntax.
+- '*' -> Token('greedy-quant', (0, inf))
+- '+' -> Token('greedy-quant', (1, inf))
+- '?' -> Token('greedy-quant', (0, 1))
+- '{<int1>,<int2>}' -> Token('greedy-quant', (int(<int1>), int(<int2>)))
+* operands
+** single character :: Token('char', <the-actual-character>)
+*** syntax :: a non-special character or a special character preceded by backlash
+** backreference :: Token('bref', <group-index>)
+*** syntax :: "\<int-1-99>"
+In here <int-1-99> stands for one of the strings ["1", "2", ..., "99"]
+** character class :: Token('char-class', <set-of-characters>)
+*** syntax
+- "." -> Token('char-class', ALL or DOT_NO_ALL)
+- "\d" -> Token('char-class', DIGITS)
+- "\D" -> Token('char-class', ALL-DIGITS)
+- "\w" -> Token('char-class', ALPHANUMERIC)
+- "\W" -> Token('char-class', ALL-ALPHANUMERIC)
+- "\s" -> Token('char-class', WHITESPACE)
+- "\S" -> Token('char-class', ALL-WHITESPACE)
+- '[<spec>]' -> Token('char-class', <set-defined-by-spec>)
+  The finer points of <spec> are defined in the (char_class) function.
+** zero-width assertions
+*** syntax
+All of them are literals: "^", "$", "\A", "\b", "\B", "\Z". The tokens are
+eponymous and their data member is None. Example tokens are Token("^", None),
+Token(r"\Z", None), etc.
+* parenthesis
+** syntax
+All are literals: "(", "(?:", "(?=", "(?!", ")". All tokens are eponymous and
+their data member is None. Example tokens are Token("(", None), Token("(?!",
+None), etc.
 """
 
 tokenfuncs = []
 
-# tns = tokenization name space
+# tns = tokenization namespace
 tns = NS(regstr=None, pos=None, flags=None)
 
 def exhausted():
-    return len(tns.regstr) == tns.pos
+    return tns.pos == len(tns.regstr)
 
 def takech(inc=False):
     if exhausted():
@@ -1015,16 +1029,16 @@ def token_error(msg):
     raise ValueError(f'{msg}: "{tns.regstr}"')
     
 def tokenfunc(func):
+    "A decorator for functions which extract tokens."
     tokenfuncs.append(func)
     return func
 
 # main function
 def tokenize(regstr, flags):
-    """Transforms (regstr) into a list of tokens and returns it. Raises
-    ValueError if (regstr) is flawed."""
+    """Transforms (regstr) into a list of tokens and returns it. (flags) is the
+    RegexFlags. Raises ValueError if (regstr) is flawed."""
     tns.regstr, tns.pos, tns.flags = regstr, 0, flags
     tokens = []
-    size = len(regstr)
     while not exhausted():
         for tf in tokenfuncs:
             token = tf()
@@ -1059,25 +1073,25 @@ def char_class():
     of the form Token(type='char-class', data=<chars>), where <chars> is the set
     of characters in the class.
 
-    Character class syntax: A template is what appears inside the brackets enclosing
+    Character class syntax: A spec is what appears inside the brackets enclosing
     the class (e.g. 'a-z' in [a-z]). I will describe the fine points related to how
-    a template maps to the character set that makes up the class. All of the rest is
+    a spec maps to the character set that makes up the class. All of the rest is
     the same as in Python.
 
     There are a couple of points to consider:
 
     1. Caret in the beginning
 
-    If the template begins with '^', the char set will be the negation of that
-    determined by the rest of the template. As a special case, a template of '^'
-    raises an error, because '' is not a valid template. For the rest of this
-    docstring, assume the template does not begin with '^'.
+    If the spec begins with '^', the char set will be the negation of that
+    determined by the rest of the spec. As a special case, a spec of '^'
+    raises an error, because '' is not a valid spec. For the rest of this
+    docstring, assume the spec does not begin with '^'.
 
     2. Hyphens
 
     Hyphens have two purposes:
     - They stand for themselves. This happens in the following cases:
-      - When they appear at the beginning or end of the template. As a special
+      - When they appear at the beginning or end of the spec. As a special
         case, '[^-]' is the set of all chars except '-'
       - When they are preceded by an unescaped backlash.
       - When they can't possibly stand for a range. For example, in '0-5-9',
@@ -1092,7 +1106,7 @@ def char_class():
        the resulting class will contain the characters of the inner class.
 
     4. backlashes. Normal escape characters can be included. Also, the
-       characters special to char classes - r'\[]^-' - can be included by
+       characters special to char classes (r'\[]^-') can be included by
        backlashing them.
     """
     
@@ -1108,21 +1122,21 @@ def char_class():
             cbi = tns.regstr.find(']', cbi+1)
         else:
             break
-    template = tns.regstr[tns.pos+1:cbi]
+    spec = tns.regstr[tns.pos+1:cbi]
     tns.pos = cbi + 1
-    return Token('char-class', _form_class(template))
+    return Token('char-class', _form_class_set(spec))
 
-def _form_class(template):
-    """Processes the insides of a character class (template) into a set of
+def _form_class_set(spec):
+    """Processes the insides of a character class (spec) into a set of
     characters."""
-    assert template # (template) should not be empty
+    assert spec # (spec) should not be empty
 
     def error(msg):
         # just a helper
-        raise ValueError(f'Bad character class template "{template}": {msg}')
+        raise ValueError(f'Bad character class spec "{spec}": {msg}')
     
-    tempiter = iter(template)
-        
+    tempiter = iter(spec)
+    ########################################    
     # stage 1: take care of initial '^'.
     negate = False
     first = next(tempiter)
@@ -1132,6 +1146,7 @@ def _form_class(template):
         tempiter = itertools.chain([first], tempiter) # put (first) back
 
     tokens = deque()
+    ########################################
     # stage 2: take care of backlashes. Every element of (tokens) after this
     # will be a character or a set of characters or a '--'. Tokens in this
     # context have nothing to do with regex tokens that are the result of
@@ -1159,7 +1174,7 @@ def _form_class(template):
                 error(f'Bad char after "\\": "{char}"')
         else:
             tokens.append(char)
-
+    ########################################
     # stage 3: process spans (like 'a-z') and shorthands. 
     result = set()
     while tokens:
@@ -1186,7 +1201,7 @@ def _form_class(template):
                 else:
                     tokens.appendleft(nxt) # put (nxt) back
                     result.add(token)
-
+    ########################################
     return result if not negate else ALL-result
 
 @tokenfunc
@@ -1224,12 +1239,12 @@ def greedy_quant():
 @tokenfunc
 def char_class_shorts():
     """Handles character class shorthands, like r'\d'. The dot is also
-    considered such as shorthand."""
+    considered a shorthand."""
     ch = takech(True)
     chars = None # the set of characters
     if ch == '.':
         chars = (ALL if DOTALL in tns.flags
-                 else DOTNOALL)
+                 else DOT_NO_ALL)
     elif ch == '\\':
         nxt = takech(True)
         if nxt is None:
@@ -1277,21 +1292,20 @@ def extract_digits():
 @tokenfunc
 def char():
     """Forms 'char' tokens. Call after other tokenization functions so that
-    special characters are not interpreter as regular ones. For example, if the
+    special characters are not interpreted as regular ones. For example, if the
     current char of the regex string is '*', this will interpret it as a
     character token rather than as a quantifier. As another example, this
     function will raise an error with r'\A' because 'A' is not a valid escape
     character, even though r'\A' is a valid regex. So if this is called before
-    the function that processes r'\A' regexes, an error will ensue, which may
-    not be desirable."""
+    the function that processes r'\A' regexes, an error will be raised."""
 
-    ch = takech(True)
+    ch = takech(inc=True)
     if ch == '\\':
-        nxt = takech(True)
+        nxt = takech(inc=True)
         if nxt is None:
             token_error('Cannot end in backlash.')
         elif nxt in SPECIAL:
-            return Token('char', SPECIAL)
+            return Token('char', nxt)
         elif nxt == 'x':
             x1, x2 = takech(True), takech(True)
             if (x1 is None or x1 not in HEX_DIGITS
@@ -1346,16 +1360,16 @@ class Context:
     
     def __init__(self, numgrps=0, flags=None):
         self.groups = None
-        self._numgrps = numgrps
+        self.numgrps = numgrps
         self.flags = RegexFlags(0) if flags is None else flags
 
     def initialize(self):
         """Create the list (result = [None] + odicts) and bind it to
         (self.groups). (odicts) is a list of OrderedDicts of length
-        (self._numgrps). Parenthesis are numbered starting from 1, so this
+        (self.numgrps). Parenthesis are numbered starting from 1, so this
         allows to reference the proper ordered dict using
         (result[parenthesis_index])."""        
-        self.groups = Groups(self._numgrps)
+        self.groups = Groups(self.numgrps)
         
 ########################################
 # Groups
@@ -1399,4 +1413,3 @@ class Groups:
             odict = self._lst[match._groupi]
             odict.pop(match, None)
         return False
-
