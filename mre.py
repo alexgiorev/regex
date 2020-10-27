@@ -469,7 +469,7 @@ class Alternative(Pattern):
         def __new__(cls, astr, i, pattern):
             def init(left):
                 m.string = astr
-                m.grpis, m.groups = pattern._grpis, pattern._context.groups
+                m._grpis, m._groups = pattern._grpis, pattern._context.groups
                 m._is_exhausted = False
                 m._left = m._right = pattern._left, pattern._right
                 m._childleft = left
