@@ -8,44 +8,44 @@ from mre import *
 ########################################
 # utils
 
-def word_class(grpi, context):
+def word_class(grpis, context):
     """Corresponds to r'\w'."""
     chars = set()
     chars.update(string.ascii_letters, '_', string.digits)
-    return CharClass(chars, grpi, context)
+    return CharClass(chars, grpis, context)
 
-def space_class(grpi, context):
+def space_class(grpis, context):
     """Corresponds to r'\s'."""
-    return CharClass(set(string.whitespace), grpi, context)
+    return CharClass(set(string.whitespace), grpis, context)
 
-def plus(child, grpi, context):
+def plus(child, grpis, context):
     """Corresponds to r'<child>+'."""
-    return GreedyQuant(child, 1, None, grpi, context)
+    return GreedyQuant(child, 1, None, grpis, context)
 
-def star(child, grpi, context):
+def star(child, grpis, context):
     """Corresponds to r'<child>*'."""
     return GreedyQuant(child, 0, None, gpri, context)
 
-def qmark(child, grpi, context):
+def qmark(child, grpis, context):
     """Corresponds to r'<child>?'."""
-    return GreedyQuant(child, 0, 1, grpi, context)
+    return GreedyQuant(child, 0, 1, grpis, context)
 
-def word_pattern(grpi, context):
+def word_pattern(grpis, context):
     """Corresponds to r'\w+'."""
-    return plus(word_class(None, context), grpi, context)
+    return plus(word_class(None, context), grpis, context)
 
-def spaces1(grpi, context):
+def spaces1(grpis, context):
     """Corresponds to r'\s+'."""
-    return plus(space_class(None, context), grpi, context)
+    return plus(space_class(None, context), grpis, context)
 
-def concat(grpi, context, *args):
+def concat(grpis, context, *args):
     """Corresponds to r'<r1><r2>...<rN>', where args[K] is the pattern of <rK>."""
     # Assumes that the concatenation operator is left-associative
     assert len(args) >= 2
     left = args[0]
     for right in args[1:-1]:
         left = Product(left, right, None, context)
-    return Product(left, args[-1], grpi, context)
+    return Product(left, args[-1], grpis, context)
 
 ########################################
 # Test cases
@@ -82,7 +82,7 @@ class Test(unittest.TestCase):
         m = p.match("First second third")
         self.assertFalse(m)
 
-        p = Literal("first", 1, Context(1, IGNORECASE))
+        p = Literal("first", [1], Context(1, IGNORECASE))
         m = p.search("second First third")
 
         self.assertTrue(m)
@@ -102,7 +102,7 @@ class Test(unittest.TestCase):
     def test_quant_with_char(self):
         # r'(-)+'
         context = Context(numgrps=1)
-        child = Literal('-', 1, context)
+        child = Literal('-', [1], context)
         p = plus(child, None, context)
         l = p.findall('-a--b---c----d')
         self.assertEqual(l, ['-', '--', '---', '----'])
@@ -145,8 +145,8 @@ class Test(unittest.TestCase):
     def test_backref(self):
         # r'(\w+)-(\w+)'
         context = Context(numgrps=2)
-        w1 = word_pattern(1, context)
-        w2 = word_pattern(2, context)
+        w1 = word_pattern([1], context)
+        w2 = word_pattern([2], context)
         hyphen = Literal('-', None, context)
         p = concat(None, context, w1, hyphen, w2)
 
@@ -162,12 +162,12 @@ class Test(unittest.TestCase):
             context = Context(numgrps=1)
             flags = IGNORECASE if ignorecase else None
             context = Context(numgrps=1, flags=flags)
-            b1 = ZeroWidth.fromstr(r'\b', None, context)
-            b2 = ZeroWidth.fromstr(r'\b', None, context)
-            word = word_pattern(1, context)
-            s = space_class(None, context)
-            bref = BackRef(1, None, context)
-            return concat(None, context, b1, word, s, bref, b2)
+            b1 = ZeroWidth.fromstr(r'\b', [], context)
+            b2 = ZeroWidth.fromstr(r'\b', [], context)
+            word = word_pattern([1], context)
+            s = space_class([], context)
+            bref = BackRef(1, [], context)
+            return concat([], context, b1, word, s, bref, b2)
 
         p = makeit(False)
         m = p.match('the the')

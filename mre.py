@@ -34,7 +34,8 @@ class Match:
     - string: the string on which the match was made. match._mstr is a substring
       of this.
     - _mstr: the matched substring.
-    - _groupi: the group index of the parent pattern.
+    - _grpis: a list of the group indexes of the match (often this list is empty
+      or a singleton)
     - _groups: the Groups instance
     - _start, _end: these determine the span of the matched substring.
     - _is_exhausted: True when ._mstr has gone through all possible substrings
@@ -159,8 +160,8 @@ class Pattern:
     attribute, so that (p1._context is p2._context) for any two patterns p1,p2
     in the same tree.
 
-    A pattern also has a group index (the _groupi) attribute, so that successful
-    matches know where to put their matched strings.
+    A pattern also has a list of group indexes (the _grpis) attribute, so that
+    successful matches know where to put their matched strings.
 
     All pattern classes also have a _Match inner class. All matches generted
     from a pattern are instances of its _Match. These _Match classes are where
@@ -258,7 +259,7 @@ class Literal(Pattern):
                 m.string = astr
                 m._start = i
                 m._end = i+len(literal)
-                m._groupi = pattern._groupi
+                m._grpis = pattern._grpis
                 m._groups = pattern._context.groups
                 m._mstr = literal
                 m._is_exhausted = False
@@ -273,9 +274,9 @@ class Literal(Pattern):
             self._start = self._end = self._mstr = None
             return self._groups.remove(self)
 
-    def __init__(self, literal, groupi, context):
+    def __init__(self, literal, grpis, context):
         self._literal = literal
-        self._groupi = groupi
+        self._grpis = grpis
         self._context = context
 
 
@@ -295,7 +296,7 @@ class CharClass(Pattern):
                     m._start = i
                     m._end = i + 1
                     m._groups = pattern._context.groups
-                    m._groupi = pattern._groupi
+                    m._grpis = pattern._grpis
                     m._mstr = astr_char
                     m._is_exhausted = False
                     m._groups.add(m)
@@ -309,11 +310,11 @@ class CharClass(Pattern):
             self._mstr = self._start = self._end = None
             return self._groups.remove(self)
                 
-    def __init__(self, chars, groupi, context):
+    def __init__(self, chars, grpis, context):
         self._chars = (chars
                       if not IGNORECASE in context.flags
                       else {char.lower() for char in chars})
-        self._groupi = groupi
+        self._grpis = grpis
         self._context = context
 
 
@@ -335,7 +336,7 @@ class ZeroWidth(Pattern):
                 m = object.__new__(cls)
                 m.string = string
                 m._mstr = ''
-                m._groupi = pattern._groupi
+                m._grpis = pattern._grpis
                 m._groups = pattern._context.groups
                 m._start = m._end = i
                 m._is_exhausted = False
@@ -351,17 +352,17 @@ class ZeroWidth(Pattern):
             return self._groups.remove(self)
     
     @classmethod
-    def lookahead(cls, pattern, positive, groupi, context):
+    def lookahead(cls, pattern, positive, grpis, context):
         """Returns the lookahead zero-width pattern, with (pattern) being the
         pattern that is tested at the position. The boolean (positive)
         determines if the lookahead will be positive or negative."""
         pred = (lambda string, i: bool(pattern._match(string, i))
                 if positive
                 else lambda string, i: not bool(pattern._match(string, i)))        
-        return cls(pred, groupi, context)
+        return cls(pred, grpis, context)
 
     @classmethod
-    def fromstr(cls, letter, groupi, context):
+    def fromstr(cls, letter, grpis, context):
         """Assumes (letter in {'^', '$', r'\b', r'\B', r'\A', r'\Z'}). Returns
         the corresponding zero width assertion pattern. For example, when
         (letter == r'\b'), returns the word boundary zero width pattern."""
@@ -407,11 +408,11 @@ class ZeroWidth(Pattern):
         if pred is None:
             raise ValueError(f'The letter "{letter}" does not correspond to a zero-width assertion.')
         
-        return cls(pred, groupi, context)
+        return cls(pred, grpis, context)
     
-    def __init__(self, pred, groupi, context):
+    def __init__(self, pred, grpis, context):
         self._pred = pred
-        self._groupi = groupi
+        self._grpis = grpis
         self._context = context
 
 
@@ -433,7 +434,7 @@ class BackRef(Pattern):
             if matches:
                 m = object.__new__(cls)
                 m.string, m._mstr = astr, substr
-                m._groupi, m._groups = pattern._groupi, groups      
+                m._grpis, m._groups = pattern._grpis, groups      
                 m._start, m._end = i, end
                 m._is_exhausted = False
                 m._groups.add(m)
@@ -447,9 +448,9 @@ class BackRef(Pattern):
             self._mstr = self._start = self._end = None
             return self._groups.remove(self)
 
-    def __init__(self, ref, groupi, context):
+    def __init__(self, ref, grpis, context):
         self._ref = ref
-        self._groupi = groupi
+        self._grpis = grpis
         self._context = context
 
 
@@ -468,7 +469,7 @@ class Alternative(Pattern):
         def __new__(cls, astr, i, pattern):
             def init(left):
                 m.string = astr
-                m.groupi, m.groups = pattern._groupi, pattern._context.groups
+                m.grpis, m.groups = pattern._grpis, pattern._context.groups
                 m._is_exhausted = False
                 m._left = m._right = pattern._left, pattern._right
                 m._childleft = left
@@ -509,10 +510,10 @@ class Alternative(Pattern):
                     self._is_exhausted = True
                     return self._groups.remove(self)
 
-    def __init__(self, left, right, groupi, context):
+    def __init__(self, left, right, grpis, context):
         self._left = left
         self._right = right
-        self._groupi = groupi
+        self._grpis = grpis
         self._context = context
 
         
@@ -537,7 +538,7 @@ class GreedyQuant(Pattern):
             m = object.__new__(cls)
             m.string = astr
             # no need to set _mstr and _end; they are properties
-            m._groupi, m._groups = pattern._groupi, pattern._context.groups
+            m._grpis, m._groups = pattern._grpis, pattern._context.groups
             m._start = i
             m._is_exhausted = False
             m._low, m._high = pattern._low, pattern._high
@@ -606,11 +607,11 @@ class GreedyQuant(Pattern):
                     break
                 i = end
 
-    def __init__(self, child, low, high, groupi, context):
+    def __init__(self, child, low, high, grpis, context):
         self._child = child
         self._low = low
         self._high = sys.maxsize if high is None else high
-        self._groupi = groupi
+        self._grpis = grpis
         self._context = context
 
 
@@ -635,7 +636,7 @@ class Product(Pattern):
                     m = object.__new__(cls)
                     m.string = astr
                     # _mstr and _end are properties, no need to assign them here.
-                    m._groupi = pattern._groupi
+                    m._grpis = pattern._grpis
                     m._groups = pattern._context.groups
                     m._start = i
                     m._is_exhausted = False
@@ -673,10 +674,10 @@ class Product(Pattern):
                     self._start = None
                     return self._groups.remove(self)
 
-    def __init__(self, left, right, groupi, context):
+    def __init__(self, left, right, grpis, context):
         self._left = left
         self._right = right
-        self._groupi = groupi
+        self._grpis = grpis
         self._context = context
 
 ########################################
@@ -1394,22 +1395,27 @@ class Groups:
         itr = odict.values() if hint == 'str' else odict.keys()
         return next(reversed(itr))
 
+    def _odicts(self, match):
+        for grpi in match._grpis:
+            yield self._lst[grpi]
+    
     def add(self, match):
         """Assumes (match) is not exhausted. Always returns True. Returning True
         is useful because in many situations we add to groups and then return
         True. It is more convenient to just write (return m.groups.add(m))
         rather than (m.groups.add(m); return True)."""
-        if match._groupi is not None:
-            odict = self._lst[match._groupi]
-            odict[match] = match._mstr
+        if match._grpis is not None:
+            for odict in self._odicts(match):
+                odict[match] = match._mstr
         return True
     
     def remove(self, match):
         """Assumes (self) is not exhausted. Always returns False. Returing False
         is useful because in many situations we remove from groups and then
         return False. It is more convenient to just write (return m._remove_from_groups())
-        rather than (m._remove_from_groups(); return False)."""        
-        if match._groupi is not None:
-            odict = self._lst[match._groupi]
-            odict.pop(match, None)
+        rather than (m._remove_from_groups(); return False)."""
+        if match._grpis is not None:
+            for odict in self._odicts(match):
+                odict.pop(match, None)
         return False
+
