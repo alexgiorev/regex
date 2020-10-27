@@ -684,7 +684,6 @@ class Product(Pattern):
 # Parsing
 
 Token = namedtuple('Token', 'type data')
-ExprTree = namedtuple('ExprTree', 'token args grpis')
 
 # A set of the token types which correspond to unary operators. There is no need
 # to keep track of precedence or associativity, because only postfix unary
@@ -786,18 +785,18 @@ class _TokenList:
 pns = NS(context=None)
 
 def parse(regstr, flags):
-    """Creates the expression tree and the context."""
-    pns.context = Context(0, flags)
+    """Transforms (regstr) to a Pattern object."""
+    pns.context = Context(numgrps=0, flags=flags)
     tokens = _TokenList(tokenize(regstr, flags))
-    return _parse(tokens), pns.context
+    return _parse(tokens)
 
 def _parse(tokens):
-    """Parses (tokens) to an ExprTree. Fills out the context. Raises ValueError
-    if there is a problem."""
+    """The workhorse for (parse). Parses (tokens) to a Pattern. Fills out the
+    context. Raises ValueError if there is a problem."""
     
     def make_opsargs():
         """In this function, the token sequence is transformed into a sequence
-        of ExprTrees (the operands) and operators. During this pass, we also
+        of Patterns (the operands) and operators. During this pass, we also
         remember the positions of unary and binary operators for use in later
         parsing stages. In addition, upon return, the Context will be completed
         (e.g. the number of groups will be known).
@@ -842,10 +841,10 @@ def _parse(tokens):
         for token in tokens:
             category = token_category(token)
             if category == 'primitive':
-                subexpr = ExprTree(token, args=None, grpis=[])
+                pattern = primitive_to_Pattern(token)
                 if last_is_expr_or_unop:
                     add_binop(Token('product', None))
-                opsargs.append(subexpr)
+                opsargs.append(pattern)
                 last_is_expr_or_unop = True
             elif category == 'operator':
                 if isunop(token):
@@ -855,31 +854,31 @@ def _parse(tokens):
                     add_binop(token)
                     last_is_expr_or_unop = False
             else: # (token) is a parenthesis
-                subexpr = _parse(tokens.subtokens())
+                pattern = _parse(tokens.subtokens())
                 paren = token.type
                 if paren == '(':
                     pns.context.numgrps += 1
-                    subexpr.grpis.append(pns.context.numgrps)
+                    pattern._grpis.append(pns.context.numgrps)
                 elif paren == '(?:':
                     pass
                 elif paren in ('(?=', '(?!'):
-                    subexpr = ExprTree(token, args=[subexpr], grpis=[])
+                    pattern = lookahead_to_Pattern(paren, pattern)
                 elif paren == ')':
                     raise ValueError(f'Unneccessary closing parenthesis.')
                 else:
                     raise AssertionError(f'This should not happen: {token}')
                 if last_is_expr_or_unop:
                     add_binop(Token('product', None))
-                opsargs.append(subexpr)
+                opsargs.append(pattern)
                 last_is_expr_or_unop = True
 
         binops = [item[1] for item in sorted(binops.items(), reverse=True)]        
         return opsargs, unops, binops
 
     def process_unary_operators(opsargs, unops):
-        """Assumes (opsargs) contains only (ExprTree)s and operator tokens. Some
+        """Assumes (opsargs) contains only Patterns and operator tokens. Some
         of those operators will be unary. This phase processes them out, so that
-        what is left will be an alternating sequence of (ExprTree)s and binary
+        what is left will be an alternating sequence of Patterns and binary
         operators. To achieve this, (unops) is used. It must be a sequence of
         the positions of the unary operators."""
         
@@ -888,24 +887,24 @@ def _parse(tokens):
             if arg_pos is None:
                 raise ValueError(f'Missing unary operator argument.')
             operand = arg_pos.value
-            if type(operand) is not ExprTree:
+            if not isinstance(operand, Pattern):
                 raise ValueError(f'Bad unary operator argument.')
-            subexpr = ExprTree(token=unop_pos.value, # the operator token
-                               args=[operand], grpis=[])
-            arg_pos.value = subexpr
+            token = unop_pos.value
+            pattern = unaryop_to_Pattern(token, operand)
+            arg_pos.value = pattern
             opsargs.remove(unop_pos)
                 
     def process_binary_operators(opsargs, binops):
         """At this point, (opsargs) should be an alternating sequence of
-        ExprTrees and binary operator tokens. The first and last elements should
-        be ExprTrees. This function reduces (opsargs) to a single ExprTree."""
+        Patterns and binary operator tokens. The first and last elements should
+        be Patterns. This function reduces (opsargs) to a single Pattern."""
 
-        def getarg(pos):
+        def get_operand(pos):
             """helper for the loop below."""
             if pos is None:
                 raise ValueError(f'Missing operand.')
             value = pos.value
-            if type(value) is not ExprTree:
+            if not isinstance(value, Pattern):
                 raise ValueError(f'Bad operand.')
             return value
         
@@ -914,11 +913,10 @@ def _parse(tokens):
                 binop_posns = reversed(binop_posns)
             for binop_pos in binop_posns:
                 left, right = binop_pos.prev, binop_pos.next
-                arg1, arg2 = getarg(left), getarg(right)
-                subexpr = ExprTree(token=binop_pos.value,
-                                   args=[arg1, arg2],
-                                   grpis=[])
-                binop_pos.value = subexpr
+                operand1, operand2 = get_operand(left), get_operand(right)
+                token = binop_pos.value
+                pattern = binop_to_Pattern(token, operand1, operand2)
+                binop_pos.value = pattern
                 opsargs.remove(left)
                 opsargs.remove(right)
 
@@ -927,6 +925,65 @@ def _parse(tokens):
     process_binary_operators(opsargs, binops)
     return opsargs.first.value
 
+def primitive_to_Pattern(token):
+    """(token) is a token of a primitive regex. This function returns the
+    corresponding Pattern."""
+    type = token.type
+    if type == 'char':
+        return Literal(token.data, [], pns.context)
+    elif type == 'bref':
+        return BackRef(token.data, [], pns.context)
+    elif type == 'char-class':
+        return CharClass(token.data, [], pns.context)
+    elif type in ('^', '$', r'\A', r'\Z', r'\b', r'\B'): # zero-width assertions
+        return ZeroWidth.fromstr(type, [], pns.context)
+    else:
+        raise AssertionError('This should never happen.')
+
+def lookahead_to_Pattern(token, pattern):
+    """(token)'s type is one of "(?=" or "(?!". (pattern) is the lookahead's
+    internal regex. This function returns the Pattern corresponding to the
+    lookahead."""
+    positive = token.type == "(?="
+    return ZeroWidth(pattern, positive, [], pns.context)
+
+def unaryop_to_Pattern(token, operand):
+    """(token) corresponds to a unary operator, with (operand) as its operand
+    Pattern. This returns the corresponding Pattern."""
+    type = token.type
+    if type == 'greedy-quant':
+        return GreedyQuant(operand, *token.data, [], pns.context)
+    else:
+        raise AssertionError('This should never happen.')
+
+def binop_to_Pattern(token, operand1, operand2):
+    """(token) is a binary operator, with (operand1) and (operand2) being
+    Patterns that are its operands. This function forms the pattern
+    corresponding to the binary operator."""
+    if token.type == 'product':
+        if (type(operand1) is type(operand2) is Literal
+            and not (operand1._grpis or operand2._grpis)):
+            # An optimization. For example, thanks to this optimization the
+            # regex string r'ab' will be parsed to a literal regex 'ab' instead
+            # of a Product with children 'a' and 'b'. For a more elaborate
+            # example, r'abc|xyz' will be parsed to an Alternative with Literal
+            # children 'abc' and 'xyz', whereas without the optimization, the
+            # children will be Products each with three single character leaves.
+            new_literal = operand1._literal + operand2._literal
+            return Literal(new_literal, [], pns.context)
+        else:
+            return Product(operand1, operand2, [], pns.context)
+    elif token.type == '|':
+        if (type(operand1) is type(operand2) is CharClass
+            and not (operand1._grpis or operand2._grpis)):
+            # An optimization. For example, thanks to this optimization the
+            # regex string r'[0-9]|[a-z]' will compile to the CharClass
+            # r'[0-9a-z]', which is semantically equivalent
+            return CharClass(operand1._chars | operand2._chars, [], pns.context)
+        else:
+            return Alternative(operand1, operand2, [], pns.context)
+    else:
+        raise AssertionError('This should never happen.')
 ########################################
 ## Tokenization
 
