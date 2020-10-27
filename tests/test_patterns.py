@@ -47,7 +47,7 @@ def concat(grpi, context, *args):
         left = Product(left, right, None, context)
     return Product(left, args[-1], grpi, context)
 
-# ----------------------------------------
+########################################
 # Test cases
 
 class Test(unittest.TestCase):

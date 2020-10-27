@@ -2,17 +2,16 @@ import unittest
 import string
 import random
 
-from mre.parser import *
-from mre import common
+from mre import *
 
 class TestTokenizer(unittest.TestCase):
     @staticmethod
     def noflags(regstr):
         # Just a helper
-        return tokenize(regstr, common.emptyflags())
+        return tokenize(regstr, RegexFlags(0))
 
     @staticmethod
-    def single(regstr, flags=common.emptyflags()):
+    def single(regstr, flags=RegexFlags(0)):
         # Just a helper
         return tokenize(regstr, flags)[0]
     
@@ -26,7 +25,7 @@ class TestTokenizer(unittest.TestCase):
         cc = self.single('[a-zA-Z0-9]')
         self.assertEqual(cc.data, set(string.ascii_letters + string.digits))
         
-        cc = self.single(r'[\x00-\xff]')
+        cc = self.single(r'[\x00-\x7f]')
         self.assertEqual(cc.data, ALL)
 
         cc = self.single(r'[\d\d]')
@@ -77,12 +76,12 @@ class TestParser(unittest.TestCase):
     @staticmethod
     def nf(regstr):
         """Parse without flags."""
-        return parse(regstr, common.emptyflags())[0]
+        return parse(regstr, RegexFlags(0))[0]
     
     def test(self):
-        et = self.nf('ab')
-        self.assertEqual(et.token.type, 'product')
-        arg1, arg2 = et.args
+        tree = self.nf('ab')
+        self.assertEqual(tree.token.type, 'product')
+        arg1, arg2 = tree.args
         self.assertEqual(arg1.token.type, arg2.token.type, 'char')
         self.assertEqual([arg1.token.data, arg2.token.data], ['a', 'b'])
         
