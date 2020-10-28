@@ -881,7 +881,7 @@ def _parse(tokens):
                 opsargs.append(pattern)
                 last_is_expr_or_unop = True
 
-        binops = [item[1] for item in sorted(binops.items(), reverse=True)]        
+        binops = [posn for precedence, posn in sorted(binops.items(), reverse=True)]
         return opsargs, unops, binops
 
     def process_unary_operators(opsargs, unops):
@@ -908,27 +908,61 @@ def _parse(tokens):
         Patterns and binary operator tokens. The first and last elements should
         be Patterns. This function reduces (opsargs) to a single Pattern."""
 
-        def get_operand(pos):
+        def get_operand(posn):
             """helper for the loop below."""
-            if pos is None:
+            if posn is None:
                 raise ValueError(f'Missing operand.')
-            value = pos.value
+            value = posn.value
             if not isinstance(value, Pattern):
                 raise ValueError(f'Bad operand.')
             return value
+
+        def squeeze_posn(binop_posn, pattern):
+            left, right = binop_posn.prev, binop_posn.next
+            binop_posn.value = pattern
+            opsargs.remove(left)
+            opsargs.remove(right)
+
+        def optimize(binop_posns):
+            """Assumes all operators at (binop_posns) have the same precedence,
+            and that this is currently the maximum precedence within the
+            expression sequence."""
+            operator_type = binop_posns[0].value.type
+            if operator_type == 'product':
+                # For example, thanks to this optimization the regex string
+                # r'ab' will be parsed to a literal regex 'ab' instead of a
+                # Product with children 'a' and 'b'. For a more elaborate
+                # example, r'abc|xyz' will be parsed to an Alternative with
+                # Literal children 'abc' and 'xyz', whereas without the
+                # optimization, the children will be Products each with three
+                # single character leaves.
+                squeezed_posns = [] # to be removed from (binop_posns) after the loop
+                for binop_posn in binop_posns:
+                    operand1 = get_operand(binop_posn.prev)
+                    operand2 = get_operand(binop_posn.next)
+                    if (type(operand1) is type(operand2) is Literal
+                        and not (operand1._grpis or operand2._grpis)):
+                        new_literal = operand1._literal+operand2._literal
+                        pattern = Literal(new_literal, [], pns.context)
+                        squeeze_posn(binop_posn, pattern)
+                        squeezed_posns.append(binop_posn)
+                for posn in squeezed_posns:
+                    binop_posns.remove(posn)
+            elif operator_type == '|':
+                pass
+            else:
+                raise AssertionError('This should never happen.')
         
         for assoc, binop_posns in binops:
             if assoc == 'right':
-                binop_posns = reversed(binop_posns)
-            for binop_pos in binop_posns:
-                left, right = binop_pos.prev, binop_pos.next
-                operand1, operand2 = get_operand(left), get_operand(right)
-                token = binop_pos.value
-                pattern = binop_to_Pattern(token, operand1, operand2)
-                binop_pos.value = pattern
-                opsargs.remove(left)
-                opsargs.remove(right)
-
+                binop_posns.reverse()
+            optimize(binop_posns)
+            for binop_posn in binop_posns:
+                operand1 = get_operand(binop_posn.prev)
+                operand2 = get_operand(binop_posn.next)
+                pattern = binop_to_Pattern(binop_posn.value, operand1, operand2)
+                squeeze_posn(binop_posn, pattern)
+                
     opsargs, unops, binops = make_opsargs()
     process_unary_operators(opsargs, unops)
     process_binary_operators(opsargs, binops)
@@ -970,27 +1004,9 @@ def binop_to_Pattern(token, operand1, operand2):
     Patterns that are its operands. This function forms the pattern
     corresponding to the binary operator."""
     if token.type == 'product':
-        if (type(operand1) is type(operand2) is Literal
-            and not (operand1._grpis or operand2._grpis)):
-            # An optimization. For example, thanks to this optimization the
-            # regex string r'ab' will be parsed to a literal regex 'ab' instead
-            # of a Product with children 'a' and 'b'. For a more elaborate
-            # example, r'abc|xyz' will be parsed to an Alternative with Literal
-            # children 'abc' and 'xyz', whereas without the optimization, the
-            # children will be Products each with three single character leaves.
-            new_literal = operand1._literal + operand2._literal
-            return Literal(new_literal, [], pns.context)
-        else:
-            return Product(operand1, operand2, [], pns.context)
+        return Product(operand1, operand2, [], pns.context)
     elif token.type == '|':
-        if (type(operand1) is type(operand2) is CharClass
-            and not (operand1._grpis or operand2._grpis)):
-            # An optimization. For example, thanks to this optimization the
-            # regex string r'[0-9]|[a-z]' will compile to the CharClass
-            # r'[0-9a-z]', which is semantically equivalent
-            return CharClass(operand1._chars | operand2._chars, [], pns.context)
-        else:
-            return Alternative(operand1, operand2, [], pns.context)
+        return Alternative(operand1, operand2, [], pns.context)
     else:
         raise AssertionError('This should never happen.')
 ########################################
