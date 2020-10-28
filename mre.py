@@ -1376,6 +1376,7 @@ def extract_digits():
     them. Increments (tns.pos) in the process, so that it will point to the
     first non-digit char."""
     digits = []
+    ch = takech()
     while True:
         digits.append(ch)
         tns.pos += 1

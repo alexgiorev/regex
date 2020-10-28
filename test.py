@@ -316,5 +316,33 @@ class Test(unittest.TestCase):
         lst = p.findall(test_string)
         self.assertEqual(lst, expected)
 
+    def test_string_literal(self):
+        p = compile(r'"(\\"|[^"])*"')
+        m = p.search(r'He said "I am not sure" and then he left.')
+        self.assertEqual(m.group(0), '"I am not sure"')
+
+        m = p.search(r'She said "to quote someone, surround what they say with \" and thats it" to her students')
+        self.assertEqual(m.group(0), r'"to quote someone, surround what they say with \" and thats it"')        
+
+    def test_double_word(self):
+        p = compile(r'\b(\w+)\s+\1\b')
+        l = p.findall("""
+        In November 2009, a a researcher at at the the Rey Juan Carlos
+        University in Madrid found that the English Wikipedia had lost lost
+        49,000 editors during the first three months of 2009 2009;""")
+        self.assertEqual(
+            l, ['a a', 'at at', 'the the', 'lost lost', '2009 2009'])
+
+        p = compile(r'\b(\w+)\s+\1\b', IGNORECASE)
+        m = p.match('abc AbC')
+        self.assertEqual(m.group(), 'abc AbC')
+
+        l = p.findall("""
+        In November 2009, a a researcher at aT tHe the Rey Juan Carlos
+        University in Madrid found that the English Wikipedia had LosT loSt
+        49,000 editors during the first three months of 2009 2009;""")
+        self.assertEqual(
+            l, ['a a', 'at aT', 'tHe the', 'LosT loSt', '2009 2009'])
+
         
 unittest.main(__name__)
