@@ -10,13 +10,22 @@ from pyllist import dllist
 ########################################
 # Interface
 
-def compile(regstr, flags):
+_cache = OrderedDict()
+_CACHE_MAXSIZE = 100
+
+def compile(regstr, flags=None):
+    if flags is None:
+        flags = RegexFlags(0)
+    pattern = parse(regstr, flags)
+    if len(_cache) == _CACHE_MAXSIZE:
+        _cache.popitem(last=False)
+    _cache[regstr] = pattern
+    return pattern
+
+def match(regstr, string, flags):
     raise NotImplementedError
 
 def search(regstr, string, flags):
-    raise NotImplementedError
-
-def match(regstr, string, flags):
     raise NotImplementedError
 
 def findall(regstr, string, flags):
