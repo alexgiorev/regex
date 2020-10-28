@@ -1321,14 +1321,25 @@ def greedy_quant():
         if endi == -1:
             error('Missing closing "{".')
         bounds = tns.regstr[tns.pos+1:endi].split(',')
-        if len(bounds) != 2:
-            error("One comma required. The format is '{m,n}'")
-        try:
-            low, high = map(int, bounds)
-        except ValueError:
-            error("Bounds must be parsable to integers.")
-        if low > high:
-            error(f'<low> must not exceed <high>.')
+        if not len(bounds) in (1, 2):
+            error()
+        if len(bounds) == 1:
+            try: low = int(bounds[0])
+            except ValueError:
+                error("Bounds must be parsable integers.")
+            high = low
+        elif not bounds[1].strip():
+            try: low = int(bounds[0])
+            except ValueError:
+                error("Bounds must be parsable integers.")
+            high = None
+        else:
+            try:
+                low, high = map(int, bounds)
+            except ValueError:
+                error("Bounds must be parsable to integers.")
+            if low > high:
+                error(f'<low> must not exceed <high>.')
         tns.pos = endi+1
         return Token('greedy-quant', (low, high))
     else:

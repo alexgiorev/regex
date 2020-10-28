@@ -345,7 +345,7 @@ class Test(unittest.TestCase):
             l, ['a a', 'at aT', 'tHe the', 'LosT loSt', '2009 2009'])
 
     def test_anything_but_123(self):
-        p = compile(r'(?!123)\d{3,3}')
+        p = compile(r'(?!123)\d{3}')
         lst = p.findall('first = 123, second = 456, third = 789')
         self.assertEqual(lst, ['456', '789'])
 
