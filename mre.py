@@ -930,7 +930,7 @@ def _parse(tokens):
             operator_type = binop_posns[0].value.type
             if operator_type == 'product':
                 # For example, thanks to this optimization the regex string
-                # r'ab' will be parsed to a literal regex 'ab' instead of a
+                # r'ab' will be parsed to a Literal pattern 'ab' instead of a
                 # Product with children 'a' and 'b'. For a more elaborate
                 # example, r'abc|xyz' will be parsed to an Alternative with
                 # Literal children 'abc' and 'xyz', whereas without the
@@ -949,7 +949,21 @@ def _parse(tokens):
                 for posn in squeezed_posns:
                     binop_posns.remove(posn)
             elif operator_type == '|':
-                pass
+                # Thanks to this optimization, the regex string r'[0-9]|[a-z]'
+                # will compile to the CharClass r'[0-9a-z]', which is
+                # semantically equivalent.
+                squeezed_posns = [] # to be removed from (binop_posns) after the loop
+                for binop_posn in binop_posns:
+                    operand1 = get_operand(binop_posn.prev)
+                    operand2 = get_operand(binop_posn.next)
+                    if (type(operand1) is type(operand2) is CharClass
+                        and not (operand1._grpis or operand2._grpis)):
+                        new_charset = operand1._chars | operand2._chars
+                        pattern = CharClass(new_charset, [], pns.context)
+                        squeeze_posn(binop_posn, pattern)
+                        squeezed_posns.append(binop_posn)
+                for posn in squeezed_posns:
+                    binop_posns.remove(posn)
             else:
                 raise AssertionError('This should never happen.')
         
