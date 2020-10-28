@@ -344,5 +344,20 @@ class Test(unittest.TestCase):
         self.assertEqual(
             l, ['a a', 'at aT', 'tHe the', 'LosT loSt', '2009 2009'])
 
-        
+    def test_anything_but_123(self):
+        p = compile(r'(?!123)\d{3,3}')
+        lst = p.findall('first = 123, second = 456, third = 789')
+        self.assertEqual(lst, ['456', '789'])
+
+    def test_word_with_t(self):
+        p = compile(r'(?=T)\w*', IGNORECASE)
+        lst = p.findall('This is the text, my text.')
+        self.assertEqual(['This', 'the', 'text', 'text'], lst)
+
+    def test_email(self):
+        # Source: https://www.regular-expressions.info/email.html
+        p = compile(r'\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b', IGNORECASE)
+        lst = p.findall('My new email is alex.giorev@gmail.com, my old one was algi@abv.bg')
+        self.assertEqual(lst, ['alex.giorev@gmail.com', 'algi@abv.bg'])
+
 unittest.main(__name__)
