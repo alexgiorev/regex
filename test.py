@@ -363,7 +363,7 @@ class Test(unittest.TestCase):
     def test_IP(self):
         # Source: https://www.regular-expressions.info/ip.html
         byte = r'(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)'
-        regstr = fr'{byte}\.{byte}\.{byte}\.{byte}'
+        regstr = fr'\b{byte}\.{byte}\.{byte}\.{byte}\b'
         p = compile(regstr)
         text = """IP addresses are written and displayed in human-readable
         notations, such as 172.16.254.1 in IPv4, and 2001:db8:0:1234:0:567:8:1
@@ -375,6 +375,14 @@ class Test(unittest.TestCase):
         self.assertEqual(m.group(1,2,3,4), ('172', '16', '254', '1'))
         lst = p.findall(text)
         self.assertEqual(lst, ['172.16.254.1', '192.168.1.15', '255.255.255.0'])
-        
+
+    def test_float(self):
+        # Source: https://www.regular-expressions.info/floatingpoint.html
+        regstr = r'[-+]?[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?'
+        text = '''String.format("%.2f", 1.2399) // returns "1.24"
+	String.format("%.3f", 1.2399) // returns "1.240"'''
+        p = compile(regstr)
+        lst = p.findall(text)
+        self.assertEqual(lst, ['.2', '1.2399', '1.24', '.3', '1.2399', '1.240'])
 
 unittest.main(__name__)
