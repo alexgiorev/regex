@@ -365,9 +365,10 @@ class ZeroWidth(Pattern):
         """Returns the lookahead zero-width pattern, with (pattern) being the
         pattern that is tested at the position. The boolean (positive)
         determines if the lookahead will be positive or negative."""
-        pred = (lambda string, i: bool(pattern._match(string, i))
-                if positive
-                else lambda string, i: not bool(pattern._match(string, i)))        
+        if positive:
+            pred = lambda string, i: bool(pattern._match(string, i))
+        else:
+            pred = lambda string, i: not bool(pattern._match(string, i))
         return cls(pred, grpis, context)
 
     @classmethod
@@ -997,12 +998,12 @@ def primitive_to_Pattern(token):
     else:
         raise AssertionError('This should never happen.')
 
-def lookahead_to_Pattern(token, pattern):
+def lookahead_to_Pattern(paren, pattern):
     """(token)'s type is one of "(?=" or "(?!". (pattern) is the lookahead's
     internal regex. This function returns the Pattern corresponding to the
     lookahead."""
-    positive = token.type == "(?="
-    return ZeroWidth(pattern, positive, [], pns.context)
+    positive = paren == "(?="
+    return ZeroWidth.lookahead(pattern, positive, [], pns.context)
 
 def unaryop_to_Pattern(token, operand):
     """(token) corresponds to a unary operator, with (operand) as its operand
