@@ -51,7 +51,7 @@ def concat(grpis, context, *args):
 ########################################
 # Test cases
 
-class Test(unittest.TestCase):
+class TestPatterns(unittest.TestCase):
     def test_word_class(self):
         wp = word_class(None, Context())
         m = wp.match('a')
@@ -260,12 +260,9 @@ class TestTokenizer(unittest.TestCase):
             bounds = {token.data for token in tokens}
             self.assertEqual(bounds, expected_bounds)
 
-class TestParser(unittest.TestCase):
-    @staticmethod
-    def nf(regstr):
-        """Parse without flags."""
-        return parse(regstr, RegexFlags(0))
-
+class Test(unittest.TestCase):
+    """General tests"""
+    
     def test1(self):
         p = compile("^The")
         m = p.match("The table is clean.")
@@ -278,4 +275,27 @@ class TestParser(unittest.TestCase):
         expected = ['aBc', 'XyZ', 'ABC', 'abc', 'xYZ']
         self.assertEqual(expected, lst)
 
+    def test3(self):
+        p = compile(r'^The\s+end$')
+        self.assertEqual(p.match('The end').group(0), 'The end')
+        self.assertEqual(p.match('The  end').group(0), 'The  end')
+        self.assertEqual(p.match('The   end').group(0), 'The   end')
+        self.assertFalse(p.match('Theend'))
+        self.assertFalse(p.match('The end is coming'))
+
+    def test4(self):
+        p = compile(r'abc*')
+        self.assertEqual(p.match('ab').group(0), 'ab')
+        self.assertEqual(p.match('abc').group(0), 'abc')
+        self.assertEqual(p.match('abcccc').group(0), 'abcccc')
+        self.assertEqual(p.match('abcabc').group(0), 'abc')
+
+    def test5(self):
+        p = compile('((abc))|(xyz)')
+        m1, m2 = p.finditer('The first three letters are "abc" and the last three are "xyz"')
+        self.assertEqual(m1.group(1), m1.group(2), 'abc')
+        self.assertEqual(m1.group(3), None)
+        self.assertEqual(m2.group(1), m2.group(2), None)
+        self.assertEqual(m2.group(3), 'xyz')
+        
 unittest.main(__name__)
