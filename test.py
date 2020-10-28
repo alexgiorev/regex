@@ -297,5 +297,24 @@ class Test(unittest.TestCase):
         self.assertEqual(m1.group(3), None)
         self.assertEqual(m2.group(1), m2.group(2), None)
         self.assertEqual(m2.group(3), 'xyz')
+
+    def test_identifier(self):
+        test_string = 'return Literal(token1.data, [], pns.context) + some_word'
+        expected = ['return', 'Literal', 'token1', 'data', 'pns', 'context', 'some_word']
+        
+        p = compile('[a-zA-Z_][a-zA-Z_0-9]*')
+        lst = p.findall(test_string)
+        self.assertEqual(lst, expected)
+
+        # shortened version
+        p = compile('\w[\w\d]*')
+        lst = p.findall(test_string)
+        self.assertEqual(lst, expected)
+
+        # to test parenthesis and "alternative" operator
+        p = compile('\w(?:\w|\d)*')
+        lst = p.findall(test_string)
+        self.assertEqual(lst, expected)
+
         
 unittest.main(__name__)
