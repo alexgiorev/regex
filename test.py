@@ -360,4 +360,21 @@ class Test(unittest.TestCase):
         lst = p.findall('My new email is alex.giorev@gmail.com, my old one was algi@abv.bg')
         self.assertEqual(lst, ['alex.giorev@gmail.com', 'algi@abv.bg'])
 
+    def test_IP(self):
+        # Source: https://www.regular-expressions.info/ip.html
+        byte = r'(25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)'
+        regstr = fr'{byte}\.{byte}\.{byte}\.{byte}'
+        p = compile(regstr)
+        text = """IP addresses are written and displayed in human-readable
+        notations, such as 172.16.254.1 in IPv4, and 2001:db8:0:1234:0:567:8:1
+        in IPv6. The size of the routing prefix of the address is designated in
+        CIDR notation by suffixing the address with the number of significant
+        bits, e.g., 192.168.1.15/24, which is equivalent to the historically
+        used subnet mask 255.255.255.0."""
+        m = p.search(text)
+        self.assertEqual(m.group(1,2,3,4), ('172', '16', '254', '1'))
+        lst = p.findall(text)
+        self.assertEqual(lst, ['172.16.254.1', '192.168.1.15', '255.255.255.0'])
+        
+
 unittest.main(__name__)

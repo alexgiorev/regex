@@ -176,8 +176,8 @@ class Pattern:
     from a pattern are instances of its _Match. These _Match classes are where
     most of the matching logic resides.
     """
-
-    # ----------------------------------------
+    
+    ########################################
     # _match functions
     
     """What is the difference between _match and _newmatch? _newmatch creates new
@@ -196,7 +196,7 @@ class Pattern:
         self._context.initialize()
         return self._match(astr, i)
     
-    # ----------------------------------------
+    ########################################
     # Public functions
     
     def match(self, astr, start=0):
@@ -251,6 +251,12 @@ class Pattern:
             out.append(m.group())
         return out
 
+    #################################################
+    # Miscellaneous functions
+
+    def _children(self):
+        """Returns a list of the children Patterns of (self)."""
+        return []
 
 class Literal(Pattern):
     class _Match(Match):
@@ -481,7 +487,7 @@ class Alternative(Pattern):
                 m.string = astr
                 m._grpis, m._groups = pattern._grpis, pattern._context.groups
                 m._is_exhausted = False
-                m._left = m._right = pattern._left, pattern._right
+                m._left, m._right = pattern._left, pattern._right
                 m._childleft = left
                 m._child = child
                 m._refresh()
@@ -525,6 +531,9 @@ class Alternative(Pattern):
         self._right = right
         self._grpis = grpis
         self._context = context
+
+    def _children(self):
+        return [self._left, self._right]
 
         
 class GreedyQuant(Pattern):
@@ -624,6 +633,9 @@ class GreedyQuant(Pattern):
         self._grpis = grpis
         self._context = context
 
+    def _children(self):
+        return [self._child]
+
 
 class Product(Pattern):
     """For regexes of the form '<left-regex><right-regex>'."""
@@ -689,6 +701,9 @@ class Product(Pattern):
         self._right = right
         self._grpis = grpis
         self._context = context
+
+    def _children(self):
+        return [self._left, self._right]
 
 ########################################
 # Parsing
