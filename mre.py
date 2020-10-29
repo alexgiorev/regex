@@ -623,6 +623,7 @@ class GreedyQuant(Pattern):
                 children.append(child)
                 end = child._end
                 if i == end:
+                    # Empty child. Break to avoid an infinite loop.
                     break
                 i = end
 
@@ -1542,4 +1543,3 @@ class Groups:
             for odict in self._odicts(match):
                 odict.pop(match, None)
         return False
-

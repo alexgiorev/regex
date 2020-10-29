@@ -385,4 +385,12 @@ class Test(unittest.TestCase):
         lst = p.findall(text)
         self.assertEqual(lst, ['.2', '1.2399', '1.24e-5', '.3', '1.2399', '1.240e17'])
 
+    def test_hex(self):
+        p = compile('0x[\da-f]+', IGNORECASE)
+        text = """In programming, a number of notations are used to denote
+        hexadecimal numbers, usually involving a prefix or suffix. The prefix 0x
+        is used in C and related programming languages, which would denote this
+        value as 0x67C2. Here are more examples: 0X12, 0xffff, 0x1234abcdF"""
+        self.assertEqual(p.findall(text), ['0x67C2', '0X12', '0xffff', '0x1234abcdF'])
+
 unittest.main(__name__)
