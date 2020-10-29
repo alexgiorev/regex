@@ -23,16 +23,20 @@ def compile(regstr, flags=None):
     return pattern
 
 def match(regstr, string, flags):
-    raise NotImplementedError
+    p = compile(regstr, flags)
+    return p.match(string)
 
 def search(regstr, string, flags):
-    raise NotImplementedError
+    p = compile(regstr, flags)
+    return p.search(string)
 
 def findall(regstr, string, flags):
-    raise NotImplementedError
+    p = compile(regstr, flags)
+    return p.findall(string)
 
 def finditer(regstr, string, flags):
-    raise NotImplementedError
+    p = compile(regstr, flags)
+    return p.finditer(string)
 
 ########################################
 # Patterns & Matches
