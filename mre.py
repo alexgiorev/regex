@@ -176,7 +176,7 @@ class Pattern:
     A pattern also has a list of group indexes (the _grpis) attribute, so that
     successful matches know where to put their matched strings.
 
-    All pattern classes also have a _Match inner class. All matches generted
+    All pattern classes also have a _Match inner class. All matches generated
     from a pattern are instances of its _Match. These _Match classes are where
     most of the matching logic resides.
     """
@@ -184,11 +184,11 @@ class Pattern:
     ########################################
     # _match functions
     
-    """What is the difference between _match and _newmatch? _newmatch creates new
-    groups for the pattern tree, whereas _match uses the current groups. _match is
-    used during the matching process, e.g. by parents who need to match the child as
-    part of their own matching logic. _newmatch is called only once during the
-    matching process of the root pattern."""
+    """What is the difference between _match and _newmatch? _newmatch creates
+    new groups for the pattern tree, whereas _match uses the current
+    groups. _match is used during the matching process, e.g. by parents who need
+    to match the child as part of their own matching logic. _newmatch is called
+    only once, on the root pattern, to initiate the matching process."""
     
     def _match(self, astr, i):
         """If a substring of (astr) starting at (i) matches (self), the
@@ -264,12 +264,9 @@ class Pattern:
 
 class Literal(Pattern):
     class _Match(Match):
-        """Apart from the attributes which all match objects have, there are no extra ones."""
-        
         def __new__(cls, astr, i, pattern):
             m = object.__new__(cls)
             ignorecase = IGNORECASE in pattern._context.flags
-            
             literal = pattern._literal
             substr = astr[i:i+len(literal)]
             matches = (literal.lower() == substr.lower()
@@ -291,13 +288,13 @@ class Literal(Pattern):
             self._check_exhausted()
             self._is_exhausted = True
             self._start = self._end = self._mstr = None
-            return self._groups.remove(self)
+            self._groups.remove(self)
+            return False
 
     def __init__(self, literal, grpis, context):
         self._literal = literal
         self._grpis = grpis
         self._context = context
-
 
 class CharClass(Pattern):
     class _Match(Match):
@@ -327,7 +324,8 @@ class CharClass(Pattern):
             self._check_exhausted()
             self._is_exhausted = True
             self._mstr = self._start = self._end = None
-            return self._groups.remove(self)
+            self._groups.remove(self)
+            return False
                 
     def __init__(self, chars, grpis, context):
         self._chars = (chars
@@ -368,7 +366,8 @@ class ZeroWidth(Pattern):
             self._check_exhausted()
             self._is_exhausted = True
             self._mstr = self._start = self._end = None
-            return self._groups.remove(self)
+            self._groups.remove(self)
+            return False
     
     @classmethod
     def lookahead(cls, pattern, positive, grpis, context):
@@ -466,7 +465,8 @@ class BackRef(Pattern):
             self._check_exhausted()
             self._is_exhausted = True
             self._mstr = self._start = self._end = None
-            return self._groups.remove(self)
+            self._groups.remove(self)
+            return False
 
     def __init__(self, ref, grpis, context):
         self._ref = ref
@@ -485,60 +485,57 @@ class Alternative(Pattern):
       pattern."""
     
     class _Match(Match):
-        """Exhausted when (self._m is None and not self._atleft)."""
         def __new__(cls, astr, i, pattern):
-            def init(left):
+            def init(child, on_left):
                 m.string = astr
                 m._grpis, m._groups = pattern._grpis, pattern._context.groups
                 m._is_exhausted = False
                 m._left, m._right = pattern._left, pattern._right
-                m._childleft = left
+                m._on_left_child = on_left
                 m._child = child
-                m._refresh()
+                m._sync_with_child()
                 return m
                 
             m = object.__new__(cls)
             child = pattern._left._match(astr, i)
             if child:
-                return init(left=True)
+                return init(child, True)
             else:
                 child = pattern._right._match(astr, i)
                 if child:
-                    return init(left=False)
+                    return init(child, False)
                 else:
                     return None
 
-        def _refresh(self):
+        def _sync_with_child(self,groups=False):
             """Assumes (self._child) is set. Always returns True."""
             c = self._child
             self._mstr, self._start, self._end = (c._mstr, c._start, c._end)
-            return self._groups.add(self) # True
+            if groups: self._groups.add(self)
                     
         def _next(self):
             self._check_exhausted()            
             if self._child._next():
-                return self._refresh() # True
+                self._sync_with_child(groups=False)
+                return True
             else:
-                if self._childleft:
+                if self._on_left_child:
                     child = self._right._match(self.string, self._start)
                     if child:
-                        self._childleft = False
+                        self._on_left_child = False
                         self._child = child
-                        return self._refresh() # True
+                        return self._sync_with_child() # True
                 else:
                     self._mstr = self._start = self._end = None
                     self._is_exhausted = True
-                    return self._groups.remove(self)
+                    self._groups.remove(self)
+                    return False
 
     def __init__(self, left, right, grpis, context):
         self._left = left
         self._right = right
         self._grpis = grpis
         self._context = context
-
-    def _children(self):
-        return [self._left, self._right]
-
         
 class GreedyQuant(Pattern):
     """All quantifiers are implemented by this class. This includes '*', '+',
@@ -547,27 +544,19 @@ class GreedyQuant(Pattern):
     - '*' -> (0, inf)
     - '+' -> (1, inf)
     - '?' -> (0, 1)
-    - '{m,n}' -> (m, n).
-    Keep in mind that (inf) doesn't really mean infinity. It may in the future,
-    but for now it stands for (sys.maxsize).
-
-    Extra attributes:
-    - _low, _high: the bounds
-    - _children: a list of matches or None when exhausted.
-    - _base: the pattern used to form the children."""
+    - '{m,n}' -> (m, n)."""
     
     class _Match(Match):
         def __new__(cls, astr, i, pattern):
             m = object.__new__(cls)
             m.string = astr
-            # no need to set _mstr and _end; they are properties
+            # no need to set _mstr and _end -- they are properties
             m._grpis, m._groups = pattern._grpis, pattern._context.groups
             m._start = i
             m._is_exhausted = False
             m._low, m._high = pattern._low, pattern._high
             m._children = []
-            m._base = pattern._child
-            
+            m._base = pattern._child            
             m._take()
             while len(m._children) < m._low:
                 if not m._next_high():
@@ -581,9 +570,6 @@ class GreedyQuant(Pattern):
                 return None
             return ''.join(child._mstr for child in self._children)
 
-        # _mstr and _end as properties may be slow under certain
-        # circumstances. TODO: Valuate this design.
-        
         @property
         def _end(self):
             if self._is_exhausted:
@@ -596,10 +582,12 @@ class GreedyQuant(Pattern):
             self._check_exhausted()
             while self._next_high():
                 if len(self._children) >= self._low:
-                    return self._groups.add(self)
+                    self._groups.add(self)
+                    return True
             self._is_exhausted = True
             self._start = None
-            return self._groups.remove(self)
+            self._groups.remove(self)
+            return False
 
         def _next_high(self):
             """Assumes (self) isn't exhausted. Updates (self) to the next match
@@ -615,9 +603,8 @@ class GreedyQuant(Pattern):
             return True
         
         def _take(self):
-            """This is where greed comes in. Tries to append as many matches as
-            possible to (self._children)."""
-            # For performance reasons, take some attributes.
+            """This is where greed comes in. Keeps appending matches to
+            (self._children) until (self._base) fails to match"""
             base, string, children = self._base, self.string, self._children
             i = self._end
             for k in range(len(children), self._high):
@@ -638,27 +625,17 @@ class GreedyQuant(Pattern):
         self._grpis = grpis
         self._context = context
 
-    def _children(self):
-        return [self._child]
-
-
 class Product(Pattern):
     """For regexes of the form '<left-regex><right-regex>'."""
     
     class _Match(Match):
-        """Extra attributes:
-        - _leftpattern, _rightpattern: correspond to <left-regex> and <right-regex> above.
-        - _leftchild, _rightchild: match objects derived from _leftpattern and
-        _rightpattern, respectively.
-        """
-        
         def __new__(cls, astr, i, pattern):
-            leftmatch = pattern._left._match(astr, i)
-            if not leftmatch:
+            left_match = pattern._left._match(astr, i)
+            if not left_match:
                 return None
             while True:
-                rightmatch = pattern._right._match(astr, leftmatch._end)
-                if rightmatch:
+                right_match = pattern._right._match(astr, left_match._end)
+                if right_match:
                     # initialize and return
                     m = object.__new__(cls)
                     m.string = astr
@@ -667,48 +644,48 @@ class Product(Pattern):
                     m._groups = pattern._context.groups
                     m._start = i
                     m._is_exhausted = False
-                    m._leftpattern = pattern._left
-                    m._rightpattern = pattern._right
-                    m._leftchild = leftmatch
-                    m._rightchild = rightmatch
+                    m._leftp = pattern._left
+                    m._rightp = pattern._right
+                    m._leftm = left_match
+                    m._rightm = right_match
                     m._groups.add(m)
                     return m
-                if not leftmatch._next():
+                if not left_match._next():
                     return None
 
         @property
         def _mstr(self):
             return (None if self._is_exhausted
-                    else self._leftchild._mstr + self._rightchild._mstr)
+                    else self._leftm._mstr + self._rightm._mstr)
 
         @property
         def _end(self):
-            return None if self._is_exhausted else self._rightchild._end
+            return None if self._is_exhausted else self._rightm._end
             
         def _next(self):
             self._check_exhausted()
-            if self._rightchild._next():
-                return self._groups.add(self)
+            if self._rightm._next():
+                self._groups.add(self)
+                return True
             else:
-                while self._leftchild._next():
-                    rightmatch = self._rightpattern._match(
-                        self.string, self._leftchild._end)
+                while self._leftm._next():
+                    rightmatch = self._rightp._match(
+                        self.string, self._leftm._end)
                     if rightmatch:
-                        self._rightchild = rightmatch
-                        return self._groups.add(self)
+                        self._rightm = rightmatch
+                        self._groups.add(self)
+                        return True
                 else:
                     self._is_exhausted = True
                     self._start = None
-                    return self._groups.remove(self)
+                    self._groups.remove(self)
+                    return False
 
     def __init__(self, left, right, grpis, context):
         self._left = left
         self._right = right
         self._grpis = grpis
         self._context = context
-
-    def _children(self):
-        return [self._left, self._right]
 
 ########################################
 # Parsing
@@ -1044,6 +1021,7 @@ def binop_to_Pattern(token, operand1, operand2):
         return Alternative(operand1, operand2, [], pns.context)
     else:
         raise AssertionError('This should never happen.')
+
 ########################################
 ## Tokenization
 
@@ -1472,7 +1450,7 @@ class Context:
     any pattern and subpattern of the pattern tree to which the context
     pertains.
 
-    Contexts allow for the implementation of backreferencing. For example r'\3'
+    Contexts enable the implementation of backreferencing. For example r'\3'
     could be implemented by simply referring to (context.groups[3]), where
     (context) belongs to the backreference pattern.
 
@@ -1480,12 +1458,6 @@ class Context:
     to be quickly updated for all subpatterns globally. Since all subpatterns
     alias the same context instance, creating new groups to be shared by all is
     simply done by changing (context.groups) in one subpattern.
-
-    Attributes:
-    - groups: a Groups instance
-    - numgrps: the number of groups. If (groups is not None) then (len(groups)
-      == numgrps). This is useful for creating (groups) when it is None.
-    - flags: For example, IGNORECASE, MULTILINE, etc.
     """
     
     def __init__(self, numgrps=0, flags=None):
@@ -1515,34 +1487,27 @@ class Groups:
 
     def latest(self, i, hint='str'):
         """Returns the lates string (when (hint == 'str')) or match (when (hint
-        == 'match')) at with group index (i). If there is nothing stored at (i),
+        == 'match')) with group index (i). If there is nothing stored at (i),
         None is returned."""
         assert hint in ('str', 'match')
         odict = self._lst[i]
-        if not odict:
-            return None
-        itr = odict.values() if hint == 'str' else odict.keys()
-        return next(reversed(itr))
+        if not odict: return None
+        match = next(reversed(odict.keys()))
+        return match._mstr if hint == "str" else match
 
     def _odicts(self, match):
         for grpi in match._grpis:
             yield self._lst[grpi]
     
     def add(self, match):
-        """Assumes (match) is not exhausted. Always returns True. Returning True
-        is useful because in many situations we add to groups and then return
-        True. It is more convenient to just write (return m.groups.add(m))
-        rather than (m.groups.add(m); return True)."""
+        """Assumes (match) is not exhausted"""
         if match._grpis is not None:
             for odict in self._odicts(match):
-                odict[match] = match._mstr
+                odict[match] = True
         return True
     
     def remove(self, match):
-        """Assumes (self) is not exhausted. Always returns False. Returing False
-        is useful because in many situations we remove from groups and then
-        return False. It is more convenient to just write (return m._remove_from_groups())
-        rather than (m._remove_from_groups(); return False)."""
+        """Assumes (self) is not exhausted"""
         if match._grpis is not None:
             for odict in self._odicts(match):
                 odict.pop(match, None)
