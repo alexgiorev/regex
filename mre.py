@@ -8,7 +8,7 @@ from types import SimpleNamespace as NS
 from pyllist import dllist
 
 ########################################
-# Interface
+# public API
 
 _cache = OrderedDict()
 _CACHE_MAXSIZE = 100
@@ -436,16 +436,15 @@ class ZeroWidth(Pattern):
 
 
 class BackRef(Pattern):
-    """Pattern for regexes of the form r'\<int>', where <int> is some positive
-    integer."""
+    """Pattern for regexes of the form r'\<int>',
+    where <int> is some positive integer."""
     
     class _Match(Match):
         def __new__(cls, astr, i, pattern):
             ref, groups = pattern._ref, pattern._context.groups
             ignorecase = IGNORECASE in pattern._context.flags
             mstr = groups.latest(ref)
-            if mstr is None:
-                return None
+            if mstr is None: return None
             end = i + len(mstr)
             substr = astr[i:end]
             matches = (mstr.lower() == substr.lower() if ignorecase
@@ -763,10 +762,10 @@ class _TokenList:
         return result
 
     def subtokens(self):
-        """A paren token was just encountered. This returns a TokenList
-        containing all tokens within opening paren that was just passed and it's
-        corresponding closing. After this call, (self)'s index will be on the
-        token following the closing parenthesis."""
+        """A parenthesis token was just encountered. This returns a TokenList
+        containing all tokens within the opening parenthesis that was just
+        passed and it's corresponding closing. After this call, (self)'s index
+        will be on the token following the closing parenthesis."""
         
         start = self.current # the index of the token after the opening paren
         parsum = 1
@@ -1049,7 +1048,7 @@ bounds of a greedy quantifier and more.)
 
 The character set used is {chr(i) for i in range(2**7)}. The idea is to support
 all ASCII characters. I chose this set for simplicity; the purpose of this
-project is to practice, nobody will really use it.
+project is to learn, nobody will really use it.
 
 A token is represented via the Token class (see above). An instance of Token has
 a (type) and (data) attributes. The type says what kind of token this is
@@ -1073,7 +1072,7 @@ operands. Tokenization never produces this token, it is inserted during parsing.
 - '?' -> Token('greedy-quant', (0, 1))
 - '{<int1>,<int2>}' -> Token('greedy-quant', (int(<int1>), int(<int2>)))
 * operands
-** single character :: Token('char', <the-actual-character>)
+** single character :: Token('char', CHARACTER)
 *** syntax :: a non-special character or a special character preceded by backlash
 ** backreference :: Token('bref', <group-index>)
 *** syntax :: "\<int-1-99>"
