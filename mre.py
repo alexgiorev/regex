@@ -689,61 +689,6 @@ class Product(Pattern):
 ########################################
 # Parsing
 
-Token = namedtuple('Token', 'type data')
-
-# A set of the token types which correspond to unary operators. There is no need
-# to keep track of precedence or associativity, because only postfix unary
-# operators are used, and all unary operators have greater precedence than all
-# binary operators.
-unops = {'greedy-quant'}
-
-def isunop(token):
-    return token.type in unops
-
-# Order operators based on precedence. Each element of the list contains an
-# associativity and a set of operators which have that associativity. All
-# operators in a (binops) element have the same precedence, which is less than
-# that of previous elements' operators, and greater than that of next elements'
-# operators. In other words, operators are in descending precedence order.
-binops = [
-    NS(assoc='left', ops={'product'}),
-    NS(assoc='left', ops={'|'})
-]
-
-# What follows is a script which transforms (binops) into a dict which maps to a
-# binary operator its precedence and associativity. The current version of
-# (binops) is easy for humans to manipulate, the new version will be easy for
-# programs to query.
-
-new_binops = {}
-for binfo, prec in zip(binops, range(len(binops), 0, -1)):
-    assoc, ops = binfo.assoc, binfo.ops
-    for op in ops:
-        new_binops[op] = NS(assoc=assoc, prec=prec)
-binops = new_binops
-
-def isbinop(token):
-    return token.type in binops
-
-def binfo(token):
-    return binops[token.type]
-
-def token_category(token):
-    """Tokens can be grouped into 3 categories:
-    - primitives: letters, zero-width assertions, etc.
-    - operators
-    - parenthesis
-    This functions returns one of ('primitive', 'operator', 'parenthesis')
-    """
-    
-    t = token.type
-    if t.startswith('(') or t.endswith(')'):
-        return 'parenthesis'
-    elif t in unops or t in binops:
-        return 'operator'
-    else:
-        return 'primitive'
-
 class _TokenList:
     """Helper class for the internal function (make_oprsargs). Used to
     efficiently iterate over the tokens."""
@@ -764,7 +709,7 @@ class _TokenList:
     def subtokens(self):
         """A parenthesis token was just encountered. This returns a TokenList
         containing all tokens within the opening parenthesis that was just
-        passed and it's corresponding closing. After this call, (self)'s index
+        passed and its corresponding closing. After this call, (self)'s index
         will be on the token following the closing parenthesis."""
         
         start = self.current # the index of the token after the opening paren
@@ -786,23 +731,75 @@ class _TokenList:
     def __iter__(self):
         return self
 
-# global parsing namespace. Contains data that is useful for parsing related
-# functions. Initialized at each call to (parse).
-pns = NS(context=None)
-
 def parse(regstr, flags):
     """Transforms (regstr) to a Pattern object."""
-    pns.context = Context(numgrps=0, flags=flags)
-    tokens = _TokenList(tokenize(regstr, flags))
-    return _parse(tokens)
+    return Parsing(regstr,flags).run()
 
-def _parse(tokens):
-    """The workhorse for (parse). Parses (tokens) to a Pattern. Fills out the
-    context. Raises ValueError if there is a problem."""
+class Parsing:
+    # static attributes and methods
+    # ════════════════════════════════════════
     
-    def make_opsargs():
+    # A set of the token types which correspond to unary operators. There is no need
+    # to keep track of precedence or associativity, because only postfix unary
+    # operators are used, and all unary operators have greater precedence than all
+    # binary operators.
+    unary_ops = {'greedy-quant'}
+    
+    @staticmethod
+    def is_unary_op(token):
+        return token.type in Parsing.unary_ops
+
+    # Order operators based on precedence. Each element of the list contains an
+    # associativity and a set of operators which have that associativity. All
+    # operators in a (binops) element have the same precedence, and they are in
+    # descending order of precedence.
+    binary_ops = [
+        NS(assoc='left', ops={'product'}),
+        NS(assoc='left', ops={'|'})
+    ]
+
+    new_binary_ops = {}
+    for binfo, prec in zip(binary_ops, range(len(binary_ops),0,-1)):
+        assoc, ops = binfo.assoc, binfo.ops
+        for op in ops:
+            new_binary_ops[op] = NS(assoc=assoc, prec=prec)
+    binary_ops = new_binary_ops
+    
+    @staticmethod
+    def is_binary_op(token):
+        return token.type in Parsing.binary_ops
+    
+    @staticmethod
+    def token_category(token):
+        t = token.type
+        if t.startswith('(') or t.endswith(')'):
+            return 'parenthesis'
+        elif t in Parsing.binary_ops or t in Parsing.unary_ops:
+            return 'operator'
+        else:
+            return 'primitive'
+
+    # ════════════════════════════════════════
+    
+    def __init__(self, regstr, flags):
+        self.regstr = regstr
+        self.flags = flags
+        self.context = Context(numgrps=0, flags=flags)
+        self.tokens = None
+
+    def run(self):
+        tokens = _TokenList(tokenize(self.regstr,self.flags))
+        return self._parse(tokens)
+    
+    def _parse(self, tokens):
+        opsargs, unary_ops, binary_ops = self._make_opsargs(tokens)
+        self._process_unary(opsargs, unary_ops)
+        self._process_binary(opsargs, binary_ops)
+        return opsargs.first.value
+
+    def _make_opsargs(self, tokens):
         """In this function, the token sequence is transformed into a sequence
-        of Patterns (the operands) and operators. During this pass, we also
+        of Patterns (the operands) and operators. During this stage, we also
         remember the positions of unary and binary operators for use in later
         parsing stages. In addition, upon return, the Context will be completed
         (e.g. the number of groups will be known).
@@ -822,85 +819,80 @@ def _parse(tokens):
 
         # a doubly linked list containing operands and their arguments.
         opsargs = dllist()
-
         # a list of the positions of the unary operators within (opsargs)
-        unops = []
-        
-        # a dict which maps precedences to pairs (assoc, posns), where (assoc)
-        # is the associativity of the binary operators at (posns).
-        binops = {}
-
-        def add_unop(token):
+        unary_ops = []
+        # a dict which maps precedences to pairs (assoc, posns), (posns) is
+        # the positions of the binary operators which have that precedence
+        # and (assoc) is their associativity.
+        binary_ops = {}
+        def add_unary(token):
             pos = opsargs.append(token)
-            unops.append(pos)
-        
-        def add_binop(token):
-            bi = binfo(token)
-            pos = opsargs.append(token)
-            _, posns = binops.setdefault(bi.prec, (bi.assoc, []))
-            posns.append(pos)
-        
+            unary_ops.append(pos)
+        def add_binary(token):
+            info = Parsing.binary_ops[token.type]
+            posn = opsargs.append(token)
+            _, posns = binary_ops.setdefault(info.prec, (info.assoc, []))
+            posns.append(posn)
         # The flag below is needed to determine if a product operator ought to
         # be inserted.
         last_is_expr_or_unop = False
-            
         for token in tokens:
-            category = token_category(token)
+            category = Parsing.token_category(token)
             if category == 'primitive':
-                pattern = primitive_to_Pattern(token)
+                pattern = self.primitive_to_Pattern(token)
                 if last_is_expr_or_unop:
-                    add_binop(Token('product', None))
+                    add_binary(Token('product', None))
                 opsargs.append(pattern)
                 last_is_expr_or_unop = True
             elif category == 'operator':
-                if isunop(token):
-                    add_unop(token)
+                if Parsing.is_unary_op(token):
+                    add_unary(token)
                     last_is_expr_or_unop = True
                 else:
-                    add_binop(token)
+                    add_binary(token)
                     last_is_expr_or_unop = False
             else: # (token) is a parenthesis
-                pattern = _parse(tokens.subtokens())
+                pattern = self._parse(tokens.subtokens())
                 paren = token.type
                 if paren == '(':
-                    pns.context.numgrps += 1
-                    pattern._grpis.append(pns.context.numgrps)
+                    self.context.numgrps += 1
+                    pattern._grpis.append(self.context.numgrps)
                 elif paren == '(?:':
                     pass
                 elif paren in ('(?=', '(?!'):
-                    pattern = lookahead_to_Pattern(paren, pattern)
+                    pattern = self.lookahead_to_Pattern(paren, pattern)
                 elif paren == ')':
-                    raise ValueError(f'Unneccessary closing parenthesis.')
+                    raise ValueError(f'Superfluous closing parenthesis.')
                 else:
                     raise AssertionError(f'This should not happen: {token}')
                 if last_is_expr_or_unop:
-                    add_binop(Token('product', None))
+                    add_binary(Token('product', None))
                 opsargs.append(pattern)
                 last_is_expr_or_unop = True
 
-        binops = [posn for precedence, posn in sorted(binops.items(), reverse=True)]
-        return opsargs, unops, binops
+        binary_ops = [posn for precedence, posn in sorted(binary_ops.items(), reverse=True)]
+        return opsargs, unary_ops, binary_ops
 
-    def process_unary_operators(opsargs, unops):
+    def _process_unary(self, opsargs, unary_ops):
         """Assumes (opsargs) contains only Patterns and operator tokens. Some
         of those operators will be unary. This phase processes them out, so that
         what is left will be an alternating sequence of Patterns and binary
-        operators. To achieve this, (unops) is used. It must be a sequence of
+        operators. To achieve this, (unary_ops) is used. It must be a sequence of
         the positions of the unary operators."""
-        
-        for unop_pos in unops:
-            arg_pos = unop_pos.prev
+
+        for unary_pos in unary_ops:
+            arg_pos = unary_pos.prev
             if arg_pos is None:
                 raise ValueError(f'Missing unary operator argument.')
             operand = arg_pos.value
             if not isinstance(operand, Pattern):
                 raise ValueError(f'Bad unary operator argument.')
-            token = unop_pos.value
-            pattern = unaryop_to_Pattern(token, operand)
+            token = unary_pos.value
+            pattern = self.unary_to_Pattern(token, operand)
             arg_pos.value = pattern
-            opsargs.remove(unop_pos)
-                
-    def process_binary_operators(opsargs, binops):
+            opsargs.remove(unary_pos)
+
+    def _process_binary(self, opsargs, binary_ops):
         """At this point, (opsargs) should be an alternating sequence of
         Patterns and binary operator tokens. The first and last elements should
         be Patterns. This function reduces (opsargs) to a single Pattern."""
@@ -940,7 +932,7 @@ def _parse(tokens):
                     if (type(operand1) is type(operand2) is Literal
                         and not (operand1._grpis or operand2._grpis)):
                         new_literal = operand1._literal+operand2._literal
-                        pattern = Literal(new_literal, [], pns.context)
+                        pattern = Literal(new_literal, [], self.context)
                         squeeze_posn(binop_posn, pattern)
                         squeezed_posns.append(binop_posn)
                 for posn in squeezed_posns:
@@ -956,74 +948,70 @@ def _parse(tokens):
                     if (type(operand1) is type(operand2) is CharClass
                         and not (operand1._grpis or operand2._grpis)):
                         new_charset = operand1._chars | operand2._chars
-                        pattern = CharClass(new_charset, [], pns.context)
+                        pattern = CharClass(new_charset, [], self.context)
                         squeeze_posn(binop_posn, pattern)
                         squeezed_posns.append(binop_posn)
                 for posn in squeezed_posns:
                     binop_posns.remove(posn)
             else:
                 raise AssertionError('This should never happen.')
-        
-        for assoc, binop_posns in binops:
+
+        for assoc, binop_posns in binary_ops:
             if assoc == 'right':
                 binop_posns.reverse()
             optimize(binop_posns)
             for binop_posn in binop_posns:
                 operand1 = get_operand(binop_posn.prev)
                 operand2 = get_operand(binop_posn.next)
-                pattern = binop_to_Pattern(binop_posn.value, operand1, operand2)
+                pattern = self.binary_to_Pattern(binop_posn.value, operand1, operand2)
                 squeeze_posn(binop_posn, pattern)
-                
-    opsargs, unops, binops = make_opsargs()
-    process_unary_operators(opsargs, unops)
-    process_binary_operators(opsargs, binops)
-    return opsargs.first.value
+    
+    def primitive_to_Pattern(self,token):
+        """(token) is a token of a primitive regex. This function returns the
+        corresponding Pattern."""
+        type = token.type
+        if type == 'char':
+            return Literal(token.data, [], self.context)
+        elif type == 'bref':
+            return BackRef(token.data, [], self.context)
+        elif type == 'char-class':
+            return CharClass(token.data, [], self.context)
+        elif type in ('^', '$', r'\A', r'\Z', r'\b', r'\B'): # zero-width assertions
+            return ZeroWidth.fromstr(type, [], self.context)
+        else:
+            raise AssertionError('This should never happen.')
 
-def primitive_to_Pattern(token):
-    """(token) is a token of a primitive regex. This function returns the
-    corresponding Pattern."""
-    type = token.type
-    if type == 'char':
-        return Literal(token.data, [], pns.context)
-    elif type == 'bref':
-        return BackRef(token.data, [], pns.context)
-    elif type == 'char-class':
-        return CharClass(token.data, [], pns.context)
-    elif type in ('^', '$', r'\A', r'\Z', r'\b', r'\B'): # zero-width assertions
-        return ZeroWidth.fromstr(type, [], pns.context)
-    else:
-        raise AssertionError('This should never happen.')
+    def lookahead_to_Pattern(self, paren, pattern):
+        """(token)'s type is one of "(?=" or "(?!". (pattern) is the lookahead's
+        internal regex. This function returns the Pattern corresponding to the
+        lookahead."""
+        positive = paren == "(?="
+        return ZeroWidth.lookahead(pattern, positive, [], self.context)
 
-def lookahead_to_Pattern(paren, pattern):
-    """(token)'s type is one of "(?=" or "(?!". (pattern) is the lookahead's
-    internal regex. This function returns the Pattern corresponding to the
-    lookahead."""
-    positive = paren == "(?="
-    return ZeroWidth.lookahead(pattern, positive, [], pns.context)
+    def unary_to_Pattern(self, token, operand):
+        """(token) corresponds to a unary operator, with (operand) as its operand
+        Pattern. This returns the corresponding Pattern."""
+        type = token.type
+        if type == 'greedy-quant':
+            return GreedyQuant(operand, *token.data, [], self.context)
+        else:
+            raise AssertionError('This should never happen.')
 
-def unaryop_to_Pattern(token, operand):
-    """(token) corresponds to a unary operator, with (operand) as its operand
-    Pattern. This returns the corresponding Pattern."""
-    type = token.type
-    if type == 'greedy-quant':
-        return GreedyQuant(operand, *token.data, [], pns.context)
-    else:
-        raise AssertionError('This should never happen.')
-
-def binop_to_Pattern(token, operand1, operand2):
-    """(token) is a binary operator, with (operand1) and (operand2) being
-    Patterns that are its operands. This function forms the pattern
-    corresponding to the binary operator."""
-    if token.type == 'product':
-        return Product(operand1, operand2, [], pns.context)
-    elif token.type == '|':
-        return Alternative(operand1, operand2, [], pns.context)
-    else:
-        raise AssertionError('This should never happen.')
+    def binary_to_Pattern(self, token, operand1, operand2):
+        """(token) is a binary operator, with (operand1) and (operand2) being
+        Patterns that are its operands. This function forms the pattern
+        corresponding to the binary operator."""
+        if token.type == 'product':
+            return Product(operand1, operand2, [], self.context)
+        elif token.type == '|':
+            return Alternative(operand1, operand2, [], self.context)
+        else:
+            raise AssertionError('This should never happen.')
 
 ########################################
 ## Tokenization
 
+Token = namedtuple('Token', 'type data')
 
 """
 Tokenization here is not a strictly syntactical operation. It also does some
